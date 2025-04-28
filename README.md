@@ -49,19 +49,21 @@ This project follows the specifications outlined in [`Technical-Specification-an
     *   Dashboard components (`<MetricCards />`, `<ProgressChart />`, `<TodayWorkout />`) created in `src/components/dashboard/`.
     *   Components are connected to `useMetricsStore` and `usePlannerStore` to display dynamic, persisted data.
     *   Integrated into the main dashboard page (`src/app/page.tsx`).
-*   **Planner UI (Basic):**
+*   **Planner UI (Basic & Interactive):**
     *   `<WeeklyCalendarView />` component created (`src/features/planner/components/`) displaying days and workouts from the store.
     *   Integrated into the planner page (`src/app/planner/page.tsx`).
-    *   `<WorkoutModal />` component created (`src/features/planner/components/WorkoutModal.tsx`) for adding/editing workouts, using React Hook Form, Zod, and Zustand store. (Missing UI component dependencies).
+    *   `<WorkoutModal />` component created (`src/features/planner/components/WorkoutModal.tsx`) for adding/editing workouts, integrated with `WeeklyCalendarView`.
+    *   Drag-and-drop functionality implemented in `WeeklyCalendarView` using `@dnd-kit` for rescheduling workouts.
+    *   Weekly plan generation utility (`src/lib/plannerUtils.ts`) created based on spec rules (Algo 4).
+    *   Plan generation action added to `plannerStore` and triggered by a button in `WeeklyCalendarView`.
+    *   (Note: `WorkoutModal` still missing UI component dependencies: Button, Input, Label, Select).
 *   **README & Spec:** Updated to reflect Next.js usage and current progress.
 
 ### Missing Features / Next Steps
 
-*   **Planner Implementation (Continued):**
-    *   **Add UI Dependencies for `WorkoutModal`:** Implement or add missing components (`Button`, `Input`, `Label`, `Select`) in `src/components/ui/`.
-    *   **Integrate `WorkoutModal` Triggering:** Update `WeeklyCalendarView` or add controls to open the modal for adding/editing workouts.
-    *   **Implement Drag-and-Drop:** Integrate `@dnd-kit` for rearranging workouts in `WeeklyCalendarView`.
-    *   **Implement Plan Generation Logic:** Create the algorithm for suggesting weekly plans (Spec Section 8, Algo 4).
+*   **Planner Implementation (Refinements):**
+    *   **Add UI Dependencies:** Implement or add missing components (`Button`, `Input`, `Label`, `Select`) in `src/components/ui/` for `WorkoutModal`.
+    *   **Enhance Plan Generation:** Improve workout distribution logic (e.g., avoid back-to-back intensity), consider user busy blocks (requires placeholder/integration), add STRENGTH workouts based on profile. (Spec Section 8 Algo 4 enhancements).
 *   **Nutrition Implementation:** Build UI (`/nutrition`) for meal logging and macro progress display.
 *   **Knowledge Base Implementation:** Build UI (`/knowledge`) to display `KnowledgeCard` components.
 *   **Settings Implementation:** Build UI (`/settings`) for profile editing, reminders, data export, and integration triggers (Fitbit/NFC).
