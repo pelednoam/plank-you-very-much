@@ -23,13 +23,13 @@ This project follows the specifications outlined in [`Technical-Specification-an
 *   **PWA:** `@ducanh2912/next-pwa` (or similar)
 *   **Other Libraries:** `uuid`, `@dnd-kit/*`, `lucide-react`
 
-## 3. Current Status (as of YYYY-MM-DD)
+## 3. Current Status (as of 2025-04-28)
 
 ### Implemented Features (v1.0 Foundation)
 
 *   **Project Setup:** Initialized using Next.js App Router (`create-next-app` with `--src-dir`, `--ts`, `--tailwind`, `--eslint`).
 *   **Dependencies:** Core dependencies installed (see `package.json` and Section 18 of Spec).
-*   **Directory Structure:** Aligned with spec (Section 6), adapted for Next.js App Router conventions (`src/app`, `src/components`, `src/features`, `src/lib`, `src/store`, `src/types`, `cypress/`, `media/`).
+*   **Directory Structure:** Aligned with spec (Section 6), adapted for Next.js App Router conventions (`src/app`, `src/components`, `src/features`, `src/lib`, `src/store`, `src/types`, `cypress/`, `media/`). Redundant `peakform/` directory removed.
 *   **Data Types:** Core TypeScript interfaces defined in `src/types/index.ts` based on Section 7.
 *   **State Management:**
     *   Zustand stores created for `UserProfile`, `Planner` (Workouts), `Metrics`, `Nutrition` (Meals), and `MediaAssets`.
@@ -37,6 +37,7 @@ This project follows the specifications outlined in [`Technical-Specification-an
 *   **Routing & Layout:**
     *   Basic application layout defined in `src/app/layout.tsx`.
     *   Shared `<Header />` and `<Sidebar />` components created (`src/components/layout/`).
+    *   Reusable `<Modal />` component created (`src/components/ui/`).
     *   Placeholder pages created for all main routes (`/`, `/onboard`, `/planner`, `/nutrition`, `/knowledge`, `/settings`).
 *   **Onboarding Feature:**
     *   Multi-step form (`src/features/onboarding/components/OnboardingForm.tsx`) implemented using React Hook Form and Zod.
@@ -46,21 +47,30 @@ This project follows the specifications outlined in [`Technical-Specification-an
     *   Sidebar link for onboarding is conditionally rendered.
 *   **Dashboard Implementation (Connected):**
     *   Dashboard components (`<MetricCards />`, `<ProgressChart />`, `<TodayWorkout />`) created in `src/components/dashboard/`.
-    *   Components are now connected to `useMetricsStore` and `usePlannerStore` to display dynamic, persisted data (latest metrics, historical trends, today's workouts).
+    *   Components are connected to `useMetricsStore` and `usePlannerStore` to display dynamic, persisted data.
     *   Integrated into the main dashboard page (`src/app/page.tsx`).
+*   **Planner UI (Basic):**
+    *   `<WeeklyCalendarView />` component created (`src/features/planner/components/`) displaying days and workouts from the store.
+    *   Integrated into the planner page (`src/app/planner/page.tsx`).
+    *   `<WorkoutModal />` component created (`src/features/planner/components/WorkoutModal.tsx`) for adding/editing workouts, using React Hook Form, Zod, and Zustand store. (Missing UI component dependencies).
+*   **README & Spec:** Updated to reflect Next.js usage and current progress.
 
 ### Missing Features / Next Steps
 
-*   **Planner Implementation:** Build calendar UI (`/planner`), integrate `@dnd-kit`, implement workout modal and weekly plan generation logic (Spec Section 8, Algo 4).
+*   **Planner Implementation (Continued):**
+    *   **Add UI Dependencies for `WorkoutModal`:** Implement or add missing components (`Button`, `Input`, `Label`, `Select`) in `src/components/ui/`.
+    *   **Integrate `WorkoutModal` Triggering:** Update `WeeklyCalendarView` or add controls to open the modal for adding/editing workouts.
+    *   **Implement Drag-and-Drop:** Integrate `@dnd-kit` for rearranging workouts in `WeeklyCalendarView`.
+    *   **Implement Plan Generation Logic:** Create the algorithm for suggesting weekly plans (Spec Section 8, Algo 4).
 *   **Nutrition Implementation:** Build UI (`/nutrition`) for meal logging and macro progress display.
 *   **Knowledge Base Implementation:** Build UI (`/knowledge`) to display `KnowledgeCard` components.
 *   **Settings Implementation:** Build UI (`/settings`) for profile editing, reminders, data export, and integration triggers (Fitbit/NFC).
 *   **Core Algorithms:** Implement BMR/TDEE/Macro calculations (Spec Section 8, Algo 1-3) using `UserProfile` data.
 *   **Media Library Integration:** Populate `useMediaStore` with actual assets (or load from config), implement `ExerciseVideo`/`MealGallery` components, link from Workouts/Meals.
-*   **Notifications:** Implement basic Web Push notifications (Spec Section 4.8, 11).
+*   **Notifications:** Implement basic Web Push notifications (Spec Section 4.8, 11). Implement Equipment Cues (standing desk prompts, balance board timer - Spec Section 4.4).
 *   **PWA Setup:** Configure `@ducanh2912/next-pwa` for service worker, offline caching, install prompt (Spec Section 15).
 *   **Fitbit Integration (v1.1):** Implement OAuth flow, callback handler (API Route/Server Action), data sync logic (Spec Section 8A).
-*   **NFC Triggers (v1.1+):** Implement Web NFC scanning, routing logic (Spec Section 8B). Requires `NfcTag` store.
+*   **NFC Triggers (v1.1+):** Implement Web NFC scanning, routing logic (Spec Section 8B). Requires `NfcTag` store. Implement QR code fallback for iOS (Spec Section 8E).
 *   **Guided Tutorials (v1.1+):** Implement Tutorial components & content (Spec Section 8D). Requires Tutorial progress store.
 *   **Testing:** Write comprehensive unit, component, and E2E tests (Spec Section 13).
 *   **CI/CD:** Finalize GitHub Actions workflow (Spec Section 14).

@@ -1,1 +1,184 @@
-\'use client\';\n\nimport React, { useEffect } from \'react\';\nimport { useForm, SubmitHandler, Controller } from \'react-hook-form\';\nimport { zodResolver } from \'@hookform/resolvers/zod\';\nimport * as z from \'zod\';\nimport Modal from \'@/components/ui/Modal\';\nimport { usePlannerStore } from \'@/store/plannerStore\';\nimport type { Workout, WorkoutType } from \'@/types\';\nimport dayjs from \'dayjs\';\n\n// Validation Schema for the Workout form\nconst workoutSchema = z.object({\n  type: z.enum([\'CLIMB\', \'SWIM\', \'CORE\', \'STRENGTH\', \'REST\', \'MOBILITY\'], { required_error: \'Workout type is required\' }),\n  plannedAtDate: z.string().min(1, \'Date is required\'), // YYYY-MM-DD\n  plannedAtTime: z.string().min(1, \'Time is required\'), // HH:mm\n  durationMin: z.number().positive(\'Duration must be positive\').min(1, \'Duration must be at least 1 minute\'),\n  notes: z.string().optional(),\n  // mediaIds: z.array(z.string()).optional(), // Add later if needed\n});\n\ntype WorkoutFormData = z.infer<typeof workoutSchema>;\n\n// Workout Types constant\nconst WORKOUT_TYPES: WorkoutType[] = [\'CLIMB\', \'SWIM\', \'CORE\', \'STRENGTH\', \'MOBILITY\', \'REST\'];\n\ninterface WorkoutModalProps {\n  isOpen: boolean;\n  onClose: () => void;\n  workoutId?: string | null; // ID of workout to edit, or null/undefined for new\n  initialDate?: string; // YYYY-MM-DD for pre-filling date when adding new\n}\n\nexport default function WorkoutModal({ isOpen, onClose, workoutId, initialDate }: WorkoutModalProps) {\n  const { addWorkout, updateWorkout, removeWorkout, workouts } = usePlannerStore((state) => ({\n    addWorkout: state.addWorkout,\n    updateWorkout: state.updateWorkout,\n    removeWorkout: state.removeWorkout,\n    workouts: state.workouts, // Need this to get the workout data for editing\n  }));\n\n  const workoutToEdit = workoutId ? workouts.find(w => w.id === workoutId) : null;\n  const isEditing = !!workoutToEdit;\n\n  const {\n    register,\n    handleSubmit,\n    control, // For custom components like selects if needed\n    reset,\n    formState: { errors, isSubmitting },\n  } = useForm<WorkoutFormData>({\n    resolver: zodResolver(workoutSchema),\n    // Default values are set in useEffect based on isOpen and workoutToEdit\n  });\n\n  // Reset form when modal opens or workoutId changes\n  useEffect(() => {\n    if (isOpen) {\n        const defaultValues = {\n            type: workoutToEdit?.type ?? \'CORE\',\n            plannedAtDate: workoutToEdit ? dayjs(workoutToEdit.plannedAt).format(\'YYYY-MM-DD\') : initialDate ?? dayjs().format(\'YYYY-MM-DD\'),\n            plannedAtTime: workoutToEdit ? dayjs(workoutToEdit.plannedAt).format(\'HH:mm\') : \'09:00\',\n            durationMin: workoutToEdit?.durationMin ?? 30,\n            notes: workoutToEdit?.notes ?? \'\',\n        }\n        console.log(\'Resetting form with defaults:\', defaultValues);\n        reset(defaultValues);\n    }\n    // Only depend on isOpen, workoutId, workoutToEdit, initialDate for resetting logic\n  }, [isOpen, workoutId, workoutToEdit, initialDate, reset]);\n\n  const onSubmit: SubmitHandler<WorkoutFormData> = (data) => {\n    const plannedAtISO = dayjs(`${data.plannedAtDate}T${data.plannedAtTime}`).toISOString();\n    \n    const workoutData = {\n      type: data.type,\n      plannedAt: plannedAtISO,\n      durationMin: data.durationMin,\n      notes: data.notes,\n      // mediaIds: data.mediaIds, // Add later\n    };\n\n    try {\n        if (isEditing && workoutId) {\n            console.log(\'Updating workout:\', workoutId, workoutData);\n            updateWorkout(workoutId, workoutData);\n        } else {\n            console.log(\'Adding workout:\', workoutData);\n            addWorkout(workoutData);\n        }\n        onClose(); // Close modal on success\n    } catch (error) { \n        console.error(\"Failed to save workout:\", error);\ \n        // TODO: Show error message to user\n    }\n  };\n\n  const handleDelete = () => {\n    if (isEditing && workoutId && confirm(\'Are you sure you want to delete this workout?\')) {\n        try {\n            removeWorkout(workoutId);\n            onClose();\n        } catch (error) { \n            console.error(\"Failed to delete workout:\", error);\ \n            // TODO: Show error message to user\n        }\n    }\n  }\n\n  return (\n    <Modal isOpen={isOpen} onClose={onClose} title={isEditing ? \'Edit Workout\' : \'Add Workout\'}>\n      <form onSubmit={handleSubmit(onSubmit)} className=\"space-y-4\">\n        {/* Workout Type */} \n        <div>\n          <label htmlFor=\"type\" className=\"block text-sm font-medium text-gray-700\">Type</label>\n          <select \
+"use client";
+
+import React from 'react';
+import { useForm, Controller, SubmitHandler } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import Modal from '@/components/ui/Modal';
+import type { Workout, WorkoutType } from '@/types';
+import { usePlannerStore } from '@/store/plannerStore';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { v4 as uuidv4 } from 'uuid';
+import dayjs from 'dayjs';
+
+// Define Zod schema based on Workout type
+// Split date and time for better UX with form inputs
+const workoutSchema = z.object({
+    type: z.enum(['CLIMB', 'SWIM', 'CORE', 'STRENGTH', 'REST', 'MOBILITY'], {
+        required_error: 'Workout type is required'
+    }),
+    plannedAtDate: z.string().min(1, 'Date is required'), // YYYY-MM-DD
+    plannedAtTime: z.string().min(1, 'Time is required'), // HH:mm
+    durationMin: z.number({invalid_type_error: 'Duration must be a number'})
+                    .positive('Duration must be positive')
+                    .int('Duration must be a whole number'),
+    // notes: z.string().optional(), // Keep simple for now
+    // mediaIds: z.array(z.string()).optional(), // Add later if needed
+});
+
+type WorkoutFormData = z.infer<typeof workoutSchema>;
+
+const WORKOUT_TYPES: WorkoutType[] = ['CLIMB', 'SWIM', 'CORE', 'STRENGTH', 'MOBILITY', 'REST'];
+
+interface WorkoutModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    workoutToEdit?: Workout | null; // Pass existing workout for editing
+    selectedDate?: string; // Pre-fill date (YYYY-MM-DD) if adding from calendar click
+}
+
+export const WorkoutModal: React.FC<WorkoutModalProps> = ({
+    isOpen,
+    onClose,
+    workoutToEdit,
+    selectedDate,
+}) => {
+    const addWorkout = usePlannerStore((state) => state.addWorkout);
+    const updateWorkout = usePlannerStore((state) => state.updateWorkout);
+    const isEditing = !!workoutToEdit;
+
+    const {
+        control,
+        handleSubmit,
+        register,
+        reset,
+        formState: { errors, isSubmitting },
+    } = useForm<WorkoutFormData>({
+        resolver: zodResolver(workoutSchema),
+        // Default values are set in useEffect
+    });
+
+    React.useEffect(() => {
+        // Reset form when modal opens or relevant props change
+        if (isOpen) {
+            const initialValues: WorkoutFormData = {
+                type: workoutToEdit?.type ?? 'CORE',
+                plannedAtDate: workoutToEdit ? dayjs(workoutToEdit.plannedAt).format('YYYY-MM-DD') : selectedDate ?? dayjs().format('YYYY-MM-DD'),
+                plannedAtTime: workoutToEdit ? dayjs(workoutToEdit.plannedAt).format('HH:mm') : '09:00',
+                durationMin: workoutToEdit?.durationMin ?? 30,
+            };
+            reset(initialValues);
+        }
+    }, [isOpen, workoutToEdit, selectedDate, reset]);
+
+
+    const onSubmit: SubmitHandler<WorkoutFormData> = (data) => {
+         // Combine date and time, then format to ISO string
+         const plannedAtISO = dayjs(`${data.plannedAtDate}T${data.plannedAtTime}`).toISOString();
+
+        const workoutData: Omit<Workout, 'id' | 'completed' | 'mediaIds'> = { // Ensure we match store function expectations
+            type: data.type,
+            plannedAt: plannedAtISO,
+            durationMin: data.durationMin,
+        };
+
+        try {
+            if (isEditing && workoutToEdit) {
+                // Assuming updateWorkout takes (id, partialWorkoutData)
+                updateWorkout(workoutToEdit.id, workoutData);
+            } else {
+                 // Assuming addWorkout takes Omit<Workout, 'id' | 'completed'> and adds id/completed itself
+                addWorkout(workoutData); // Pass only the core data
+            }
+            onClose(); // Close modal after successful submission
+        } catch (error) {
+            console.error("Failed to save workout:", error);
+            // TODO: Implement user-facing error feedback
+        }
+    };
+
+    if (!isOpen) return null;
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={isEditing ? "Edit Workout" : "Add Workout"}>
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+                {/* Workout Type */}
+                <div>
+                    <Label htmlFor="type">Workout Type</Label>
+                     <Controller
+                        name="type"
+                        control={control}
+                        render={({ field }) => (
+                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <SelectTrigger id="type">
+                                    <SelectValue placeholder="Select type" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {WORKOUT_TYPES.map(type => (
+                                        <SelectItem key={type} value={type}>{type.charAt(0) + type.slice(1).toLowerCase()}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        )}
+                    />
+                    {errors.type && <p className="text-red-500 text-sm mt-1">{errors.type.message}</p>}
+                </div>
+
+                {/* Planned Date */}
+                 <div>
+                    <Label htmlFor="plannedAtDate">Date</Label>
+                    <Input
+                        id="plannedAtDate"
+                        type="date" // Use date input for better UX
+                        {...register('plannedAtDate')}
+                        disabled={isSubmitting}
+                    />
+                     {errors.plannedAtDate && <p className="text-red-500 text-sm mt-1">{errors.plannedAtDate.message}</p>}
+                </div>
+
+                {/* Planned Time */}
+                 <div>
+                    <Label htmlFor="plannedAtTime">Time</Label>
+                    <Input
+                        id="plannedAtTime"
+                        type="time" // Use time input
+                        {...register('plannedAtTime')}
+                        disabled={isSubmitting}
+                    />
+                     {errors.plannedAtTime && <p className="text-red-500 text-sm mt-1">{errors.plannedAtTime.message}</p>}
+                </div>
+
+
+                {/* Duration */}
+                <div>
+                    <Label htmlFor="durationMin">Duration (minutes)</Label>
+                     <Input
+                        id="durationMin"
+                        type="number"
+                        {...register('durationMin', { valueAsNumber: true })} // Ensure value is treated as number
+                        disabled={isSubmitting}
+                    />
+                    {errors.durationMin && <p className="text-red-500 text-sm mt-1">{errors.durationMin.message}</p>}
+                </div>
+
+                {/* Add fields for mediaIds later if needed */}
+
+                <div className="flex justify-end space-x-2 pt-4">
+                    <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
+                    <Button type="submit" disabled={isSubmitting}>
+                        {isSubmitting ? 'Saving...' : (isEditing ? 'Update Workout' : 'Add Workout')}
+                    </Button>
+                    {/* Optionally add delete button if editing */}
+                     {/* {isEditing && (
+                        <Button type="button" variant="destructive" onClick={handleDelete} disabled={isSubmitting}>
+                            Delete
+                        </Button>
+                    )} */}
+                </div>
+            </form>
+        </Modal>
+    );
+};
