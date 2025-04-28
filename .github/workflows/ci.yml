@@ -1,0 +1,43 @@
+# .github/workflows/ci.yml
+name: PeakForm CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup PNPM
+      uses: pnpm/action-setup@v4
+      with:
+        version: 9 # Use the latest stable pnpm version
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20' # Specify your target Node.js version
+        cache: 'pnpm'
+
+    - name: Install dependencies
+      run: pnpm install
+
+    - name: Run Linters
+      run: pnpm lint
+
+    # Type checking is part of the build step (tsc -b)
+    # - name: Type Check
+    #   run: pnpm typecheck # Assuming you add this script if needed separately
+
+    - name: Run Tests
+      run: pnpm test --ci --silent # Run tests in CI mode, less verbose
+
+    - name: Build project
+      run: pnpm build 
