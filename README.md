@@ -1,5 +1,7 @@
 # Plank You Very Much
 
+![Plank You Very Much Logo](/public/logo.png)
+
 _AI-Assisted Personal Trainer – "Climb higher, dive stronger, live leaner."_
 
 ---
