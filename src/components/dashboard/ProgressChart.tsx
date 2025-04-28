@@ -1,30 +1,55 @@
-'use client'; // Required for Recharts
+'use client'; // Required for Recharts and Zustand hook
 
 import React from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer
+} from 'recharts';
+import { useMetricsStore } from '@/store/metricsStore';
+import dayjs from 'dayjs';
 
-// TODO: Fetch historical data (e.g., BodyMetrics[])
-const placeholderData = [
-  { date: '2025-04-01', weightKg: 75, bodyFatPct: 14.0 },
-  { date: '2025-04-08', weightKg: 74.5, bodyFatPct: 13.8 },
-  { date: '2025-04-15', weightKg: 74.2, bodyFatPct: 13.5 },
-  { date: '2025-04-22', weightKg: 74.0, bodyFatPct: 13.4 },
-  { date: '2025-04-29', weightKg: 73.8, bodyFatPct: 13.2 },
-];
+// Format date for XAxis display
+const formatDateTick = (isoDate: string) => {
+  return dayjs(isoDate).format('MMM D'); // e.g., "Apr 29"
+};
 
 export default function ProgressChart() {
+  // Get sorted historical data from the store
+  const historicalData = useMetricsStore((state) => state.getMetricsSortedByDate('asc'));
+
+  if (!historicalData || historicalData.length === 0) {
+    return (
+        <div className="bg-white p-4 shadow rounded h-64 flex items-center justify-center">
+            <p className="text-gray-500">Log your first metric to see progress here!</p>
+        </div>
+    );
+  }
+
   return (
     <div className="bg-white p-4 shadow rounded h-64">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={placeholderData}>
+        <LineChart data={historicalData}>
           <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="date" />
-          <YAxis yAxisId="left" label={{ value: 'Weight (kg)', angle: -90, position: 'insideLeft' }} />
-          <YAxis yAxisId="right" orientation="right" label={{ value: 'Body Fat (%)', angle: 90, position: 'insideRight' }} />
-          <Tooltip />
+          <XAxis 
+            dataKey="date" 
+            tickFormatter={formatDateTick} 
+            angle={-30} 
+            textAnchor="end" 
+            height={50}
+            minTickGap={10}
+          />
+          <YAxis yAxisId="left" label={{ value: 'Weight (kg)', angle: -90, position: 'insideLeft' }} domain={['dataMin - 1', 'dataMax + 1']} width={40} />
+          <YAxis yAxisId="right" orientation="right" label={{ value: 'Body Fat (%)', angle: 90, position: 'insideRight' }} domain={['dataMin - 1', 'dataMax + 1']} width={40}/>
+          <Tooltip labelFormatter={formatDateTick} />
           <Legend />
-          <Line yAxisId="left" type="monotone" dataKey="weightKg" stroke="#8884d8" activeDot={{ r: 8 }} name="Weight"/>
-          <Line yAxisId="right" type="monotone" dataKey="bodyFatPct" stroke="#82ca9d" name="Body Fat %"/>
+          <Line yAxisId="left" type="monotone" dataKey="weightKg" stroke="#8884d8" activeDot={{ r: 6 }} name="Weight" connectNulls />
+          <Line yAxisId="right" type="monotone" dataKey="bodyFatPct" stroke="#82ca9d" name="Body Fat %" connectNulls />
         </LineChart>
       </ResponsiveContainer>
     </div>

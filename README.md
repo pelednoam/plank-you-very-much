@@ -44,13 +44,13 @@ This project follows the specifications outlined in [`Technical-Specification-an
     *   Saves data to `useUserProfileStore` and marks onboarding complete.
     *   `/onboard` page redirects to `/` if onboarding is already complete.
     *   Sidebar link for onboarding is conditionally rendered.
-*   **Dashboard Placeholders:**
-    *   Placeholder components (`<MetricCards />`, `<ProgressChart />`, `<TodayWorkout />`) created in `src/components/dashboard/`.
+*   **Dashboard Implementation (Connected):**
+    *   Dashboard components (`<MetricCards />`, `<ProgressChart />`, `<TodayWorkout />`) created in `src/components/dashboard/`.
+    *   Components are now connected to `useMetricsStore` and `usePlannerStore` to display dynamic, persisted data (latest metrics, historical trends, today's workouts).
     *   Integrated into the main dashboard page (`src/app/page.tsx`).
 
 ### Missing Features / Next Steps
 
-*   **Dashboard Implementation:** Connect dashboard components to display data from `useMetricsStore` & `usePlannerStore`.
 *   **Planner Implementation:** Build calendar UI (`/planner`), integrate `@dnd-kit`, implement workout modal and weekly plan generation logic (Spec Section 8, Algo 4).
 *   **Nutrition Implementation:** Build UI (`/nutrition`) for meal logging and macro progress display.
 *   **Knowledge Base Implementation:** Build UI (`/knowledge`) to display `KnowledgeCard` components.
