@@ -76,6 +76,7 @@ export interface Tutorial {
 export interface UserProfile {
   name: string;
   dob?: string; // Date of birth for BMR calculation
+  sex?: 'male' | 'female'; // Added for BMR calculation
   heightCm?: number;
   // Goals
   targetBodyFatPct?: number;

@@ -59,6 +59,9 @@ This project follows the specifications outlined in [`Technical-Specification-an
     *   Weekly plan generation utility (`src/lib/plannerUtils.ts`) created based on spec rules (Algo 4).
     *   Plan generation action added to `plannerStore` and triggered by a button in `WeeklyCalendarView`.
     *   (Note: `WorkoutModal` still missing UI component dependencies: Button, Input, Label, Select).
+*   **Core Algorithms (Basic):**
+    *   Utility functions created in `src/lib/calculationUtils.ts` for BMR (Harris-Benedict), TDEE (placeholder multiplier), Calorie Target (fixed deficit), and Protein Target (LBM-based) as per Spec Section 8, Algos 1-3.
+    *   `UserProfile` type updated to include optional `sex` field required for BMR.
 *   **README & Spec:** Updated to reflect Next.js usage and current progress.
 
 ### Missing Features / Next Steps
@@ -66,10 +69,12 @@ This project follows the specifications outlined in [`Technical-Specification-an
 *   **Planner Implementation (Refinements):**
     *   **Add UI Dependencies:** Implement or add missing components (`Button`, `Input`, `Label`, `Select`) in `src/components/ui/` for `WorkoutModal`.
     *   **Enhance Plan Generation:** Improve workout distribution logic (e.g., avoid back-to-back intensity), consider user busy blocks (requires placeholder/integration), add STRENGTH workouts based on profile. (Spec Section 8 Algo 4 enhancements).
+*   **Core Algorithms (Integration & Refinement):**
+    *   Integrate BMR/TDEE/Macro calculations into UI (e.g., Dashboard, Nutrition page).
+    *   Refine TDEE calculation using a dynamic activity multiplier (e.g., from user settings or Fitbit data).
 *   **Nutrition Implementation:** Build UI (`/nutrition`) for meal logging and macro progress display.
 *   **Knowledge Base Implementation:** Build UI (`/knowledge`) to display `KnowledgeCard` components.
 *   **Settings Implementation:** Build UI (`/settings`) for profile editing, reminders, data export, and integration triggers (Fitbit/NFC).
-*   **Core Algorithms:** Implement BMR/TDEE/Macro calculations (Spec Section 8, Algo 1-3) using `UserProfile` data.
 *   **Media Library Integration:** Populate `useMediaStore` with actual assets (or load from config), implement `ExerciseVideo`/`MealGallery` components, link from Workouts/Meals.
 *   **Notifications:** Implement basic Web Push notifications (Spec Section 4.8, 11). Implement Equipment Cues (standing desk prompts, balance board timer - Spec Section 4.4).
 *   **PWA Setup:** Configure `@ducanh2912/next-pwa` for service worker, offline caching, install prompt (Spec Section 15).

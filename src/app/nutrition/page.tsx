@@ -1,13 +1,13 @@
 import React from 'react';
+import MealLogger from '@/features/nutrition/components/MealLogger';
 
 export default function NutritionPage() {
   return (
-    <div>
-      <h1>Nutrition Tracker</h1>
-      <p>Meal logging, macro tracking (rings), and meal suggestions will go here.</p>
-      {/* TODO: Implement meal log input */}
-      {/* TODO: Implement macro progress rings */}
-      {/* TODO: Implement MealGallery component */}
+    <div className="container mx-auto p-4">
+      <h1 className="text-2xl font-bold mb-4">Nutrition Tracker</h1>
+      {/* TODO: Add components for macro targets/progress rings */}
+      <MealLogger />
+      {/* TODO: Add components for displaying logged meals */}
     </div>
   );
 } 
