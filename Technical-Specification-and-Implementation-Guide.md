@@ -28,6 +28,7 @@ _(Alternatives:_ **AquaCrux**, **LeanPeak**, **CoreClimber**.)
 9. **Data export** – CSV/JSON of logs for physician/coach.
 10. **Exercise Media Library** – embedded GIF/short‑video demos for every movement with voice‑over cues.
 11. **Meal Gallery** – swipeable images & quick‑prep video snippets showing lactose‑free meal options with macro overlay.
+12. **Wearable Sync (Fitbit)** – pulls daily steps, HR, sleep & calorie burn via Fitbit Web API to refine plan and progress.
 
 ## 5  Tech Stack & Tooling
 | Layer | Choice | Rationale |
@@ -39,13 +40,14 @@ _(Alternatives:_ **AquaCrux**, **LeanPeak**, **CoreClimber**.)
 | Forms | **React‑Hook‑Form** | Type‑safe validation |
 | Date | **Day.js** | Small footprint |
 | Persistence | **IndexedDB via idb** | Offline PWA support |
-| Notifications | Web Push + service worker | Reminders |
+| Notifications | Web Push + service worker |
+| Integrations | **Fitbit Web API (OAuth 2.0)** | Sync activity / sleep data | | Reminders |
 | Testing | Jest + React Testing Library; Cypress E2E | Quality |
 | CI/CD | GitHub Actions → Vercel | Auto deploy previews |
 
 ## 6  Project Structure (proposed)
 ```
-/peakform
+/plankyou
   ├─ public/
   ├─ media/            # exercise & meal images / videos
   ├─ src/
@@ -105,7 +107,15 @@ export interface MediaAsset {
   url: string;
   thumbnail?: string;
   description?: string;
-  tags: string[];  // e.g., ['core','plank'] or ['breakfast','lactose-free']
+  tags: string[];
+}
+
+export interface FitbitDaily {
+  date: string; // yyyy‑MM‑dd
+  steps: number;
+  restingHeartRate?: number;
+  caloriesOut: number;
+  sleepMinutes?: number;
 }
 ```
 
@@ -117,6 +127,33 @@ export interface MediaAsset {
    - Required: ≥2 climb, ≥2 swim, ≥2 core, ≤1 rest.
    - Auto‑place sessions respecting user busy blocks (calendar API placeholder).
    - If back‑pain flag high → reduce climb intensity, add mobility session.
+
+## 8A  Fitbit Integration – Technical Flow
+To ingest Fitbit data you’ll implement the **OAuth 2.0 authorization code** grant and daily‑sync micro‑service.
+
+1. **Register the app** at <https://dev.fitbit.com> → Manage Apps.
+   • Callback: `${VITE_FITBIT_REDIRECT_URI}` (e.g., `https://plankyou.app/oauth/fitbit/callback`).
+   • Save `client_id`, generate `client_secret` (store only in serverless function).
+2. **Frontend flow (`/connect-fitbit`)**
+   ```ts
+   const FITBIT_AUTH_URL =
+     `https://www.fitbit.com/oauth2/authorize?response_type=code&client_id=${env.VITE_FITBIT_CLIENT_ID}&scope=activity%20heartrate%20sleep%20nutrition&redirect_uri=${encodeURIComponent(env.VITE_FITBIT_REDIRECT_URI)}`;
+   window.location.href = FITBIT_AUTH_URL;
+   ```
+3. **Callback handler (edge function)**
+   ```ts
+   POST https://api.fitbit.com/oauth2/token
+   grant_type=authorization_code&code=XXX&client_id=...&redirect_uri=...
+   ```
+   Store `access_token` (8 h) & `refresh_token` (30 d) encrypted in DB.
+4. **Daily job** pulls `/activities/date/{date}.json`, `/sleep/date/{date}.json`, etc., transforms to `FitbitDaily` model, updates store, auto‑tunes calorie targets.
+5. **Token refresh** with `refresh_token`; handle 401 by revoking & prompting reconnect.
+
+_Libraries:_ `simple-oauth2` (server), `useSWR` (client).
+
+_Security:_ keep `client_secret` server‑side; consider PKCE.
+
+---
 
 ## 9  Routing Map
 ```
@@ -147,7 +184,7 @@ export interface MediaAsset {
 |---|---|---|
 | Stand‑up cue | 45 min inactivity | “Time to stand and stretch.” |
 | Balance board | 10 min before long meeting | “Hop on the board for posture points.” |
-| Workout | 30 min prior | “PeakForm: Core session starts soon.” |
+| Workout | 30 min prior | “Plank You Very Much: Core session starts soon.” |
 
 Service worker schedules push via `NotificationAPI`; fallback to email.
 
@@ -175,20 +212,23 @@ Service worker schedules push via `NotificationAPI`; fallback to email.
 
 ## 16  Environment Config
 ```
-VITE_APP_NAME=PeakForm
+VITE_APP_NAME=PlankYouVeryMuch
 VITE_PUSH_PUBLIC_KEY=…
+VITE_FITBIT_CLIENT_ID=…
+VITE_FITBIT_REDIRECT_URI=https://app.example.com/oauth/fitbit/callback
 ```
 
 ## 17  Roadmap v1 → v2
 | Version | Must‑haves | Nice‑to‑haves |
 |---|---|---|
-| **v1** | Onboard, planner, metrics chart, local storage, basic notifications | Export CSV, dark mode |
-| **v2** | Account sync (Supabase), AI plan re‑generation (OpenAI API), coach chat | Wearable integration, social challenges |
+| **v1.0** | Onboard, planner, metrics chart, local storage, basic notifications | Dark mode |
+| **v1.1** | **Fitbit integration**, auto‑adjust calorie targets | Apple Health bridge |
+| **v2.0** | Supabase sync, AI plan re‑generation (OpenAI API), coach chat | Social challenges, Garmin support | |
 
 ## 18  Setup Scripts
 ```bash
-pnpm create vite@latest peakform --template react-ts
-cd peakform
+pnpm create vite@latest plankyou --template react-ts
+cd plankyou
 pnpm add tailwindcss zustand react-hook-form recharts dayjs idb
 pnpm dlx tailwindcss init -p
 ```
