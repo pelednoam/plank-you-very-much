@@ -72,12 +72,16 @@ export interface Tutorial {
   estimatedMinutes: number;
 }
 
+// Define standard activity levels
+export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
+
 // Additional types for user profile might be needed
 export interface UserProfile {
   name: string;
   dob?: string; // Date of birth for BMR calculation
   sex?: 'male' | 'female'; // Added for BMR calculation
   heightCm?: number;
+  activityLevel?: ActivityLevel; // Added for TDEE calculation
   // Goals
   targetBodyFatPct?: number;
   targetDate?: string;

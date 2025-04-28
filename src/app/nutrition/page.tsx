@@ -1,13 +1,34 @@
 import React from 'react';
-import MealLogger from '@/features/nutrition/components/MealLogger';
+import MealLogForm from '@/features/nutrition/components/MealLogForm';
+import MacroProgress from '@/features/nutrition/components/MacroProgress';
+import MealList from '@/features/nutrition/components/MealList';
+import dayjs from 'dayjs';
 
 export default function NutritionPage() {
-  return (
-    <div className="container mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-4">Nutrition Tracker</h1>
-      {/* TODO: Add components for macro targets/progress rings */}
-      <MealLogger />
-      {/* TODO: Add components for displaying logged meals */}
-    </div>
-  );
+    const today = dayjs().format('YYYY-MM-DD'); // Default to today
+
+    return (
+        <div className="space-y-6">
+            <h1 className="text-3xl font-bold">Nutrition Tracker</h1>
+
+            {/* Section for displaying daily macro progress vs targets */}
+            <section aria-labelledby="macro-progress-title">
+                <h2 id="macro-progress-title" className="text-xl font-semibold mb-2">Today's Progress ({today})</h2>
+                <MacroProgress date={today} />
+            </section>
+
+            {/* Section for logging a new meal */}
+            <section aria-labelledby="meal-log-title">
+                <h2 id="meal-log-title" className="text-xl font-semibold mb-2">Log Meal</h2>
+                <MealLogForm />
+            </section>
+
+            {/* Section for displaying meals logged today */}
+             <section aria-labelledby="meal-list-title">
+                <h2 id="meal-list-title" className="text-xl font-semibold mb-2">Today's Meals</h2>
+                {/* TODO: Add date picker to view other days */}
+                <MealList date={today} />
+            </section>
+        </div>
+    );
 } 

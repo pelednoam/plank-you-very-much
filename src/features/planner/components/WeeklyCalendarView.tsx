@@ -8,7 +8,8 @@ import dayjs from 'dayjs';
 import isBetween from 'dayjs/plugin/isBetween';
 // Import the modal component
 import { WorkoutModal } from './WorkoutModal';
-import { Button } from '@/components/ui/button'; // For Add button
+import { Button } from '@/components/ui/Button'; // For Add button
+import { PlusCircleIcon } from 'lucide-react';
 // Import dnd-kit components
 import {
   DndContext,

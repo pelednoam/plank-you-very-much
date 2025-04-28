@@ -7,10 +7,10 @@ import * as z from 'zod';
 import Modal from '@/components/ui/Modal';
 import type { Workout, WorkoutType } from '@/types';
 import { usePlannerStore } from '@/store/plannerStore';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Label } from '@/components/ui/Label';
+import { Select, SelectOption } from '@/components/ui/Select';
 import { v4 as uuidv4 } from 'uuid';
 import dayjs from 'dayjs';
 
@@ -112,15 +112,20 @@ export const WorkoutModal: React.FC<WorkoutModalProps> = ({
                         name="type"
                         control={control}
                         render={({ field }) => (
-                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                <SelectTrigger id="type">
-                                    <SelectValue placeholder="Select type" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {WORKOUT_TYPES.map(type => (
-                                        <SelectItem key={type} value={type}>{type.charAt(0) + type.slice(1).toLowerCase()}</SelectItem>
-                                    ))}
-                                </SelectContent>
+                            <Select
+                                id="type"
+                                value={field.value}
+                                onChange={field.onChange}
+                                onBlur={field.onBlur}
+                                ref={field.ref}
+                                disabled={isSubmitting}
+                            >
+                                <SelectOption value="" disabled>Select type</SelectOption>
+                                {WORKOUT_TYPES.map(type => (
+                                    <SelectOption key={type} value={type}>
+                                        {type.charAt(0) + type.slice(1).toLowerCase()}
+                                    </SelectOption>
+                                ))}
                             </Select>
                         )}
                     />

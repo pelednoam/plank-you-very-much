@@ -1,5 +1,5 @@
 import dayjs from 'dayjs';
-import type { UserProfile, BodyMetrics } from '@/types';
+import type { UserProfile, BodyMetrics, ActivityLevel } from '@/types';
 
 /**
  * Calculates the Basal Metabolic Rate (BMR) using the Harris-Benedict equation (revised 1990).
@@ -19,7 +19,8 @@ export function calculateBMR(
     !profile.heightCm ||
     !latestMetrics?.weightKg
   ) {
-    console.warn("Missing required data for BMR calculation:", { profile, latestMetrics });
+    // Don't warn if just calculating TDEE where profile might be partial
+    // console.warn("Missing required data for BMR calculation:", { profile, latestMetrics });
     return null;
   }
 
@@ -28,43 +29,49 @@ export function calculateBMR(
   const height = profile.heightCm;
 
   let bmr: number;
+  // Use revised Harris-Benedict equations
   if (profile.sex === 'male') {
-    // BMR = 88.362 + (13.397 * weight in kg) + (4.799 * height in cm) - (5.677 * age in years)
     bmr = 88.362 + 13.397 * weight + 4.799 * height - 5.677 * age;
-  } else {
-    // BMR = 447.593 + (9.247 * weight in kg) + (3.098 * height in cm) - (4.330 * age in years)
+  } else { // Assume female if not male, or default if sex is undefined (might need refinement)
     bmr = 447.593 + 9.247 * weight + 3.098 * height - 4.330 * age;
   }
 
   return Math.round(bmr);
 }
 
+// Standard TDEE Multipliers
+const TDEE_MULTIPLIERS: Record<ActivityLevel, number> = {
+    sedentary: 1.2,
+    light: 1.375,
+    moderate: 1.55,
+    active: 1.725,
+    very_active: 1.9,
+};
+
 /**
  * Calculates the Total Daily Energy Expenditure (TDEE).
- * Currently uses a placeholder activity multiplier.
- *
- * TODO: Implement a more dynamic activity multiplier based on user input or activity data (e.g., Fitbit steps).
+ * Uses BMR and an activity level multiplier.
  *
  * @param bmr - The calculated Basal Metabolic Rate.
+ * @param activityLevel - The user's self-reported activity level.
  * @returns The estimated TDEE in kcal/day, or null if BMR is null.
  */
-export function calculateTDEE(bmr: number | null): number | null {
+export function calculateTDEE(bmr: number | null, activityLevel: ActivityLevel | undefined): number | null {
   if (bmr === null) {
     return null;
   }
 
-  // Placeholder activity multiplier (e.g., 1.375 for light activity)
-  // Needs refinement based on user's actual activity level.
-  const activityMultiplier = 1.375;
+  // Use the selected activity level multiplier, default to sedentary if not provided
+  const multiplier = activityLevel ? TDEE_MULTIPLIERS[activityLevel] : TDEE_MULTIPLIERS.sedentary;
 
-  return Math.round(bmr * activityMultiplier);
+  return Math.round(bmr * multiplier);
 }
 
 /**
  * Calculates the target daily calorie intake for a deficit.
  * Uses a fixed deficit value for now.
  *
- * TODO: Make deficit configurable or adaptive.
+ * TODO: Make deficit configurable or adaptive based on goals.
  *
  * @param tdee - The calculated TDEE.
  * @returns The target daily calories, or null if TDEE is null.
@@ -83,14 +90,16 @@ export function calculateCalorieTarget(tdee: number | null): number | null {
  *
  * Requires LBM, which can be calculated from weight and body fat percentage.
  *
- * TODO: Consider fallback if LBM is not available (e.g., estimate based on weight).
+ * TODO: Consider fallback if LBM is not available (e.g., estimate based on weight: 1.6-2.2g/kg total body weight).
  *
  * @param latestMetrics - The user's latest body metrics containing weightKg and bodyFatPct.
  * @returns The target daily protein in grams, or null if required data is missing.
  */
 export function calculateProteinTarget(latestMetrics: BodyMetrics | null): number | null {
   if (!latestMetrics?.weightKg || typeof latestMetrics?.bodyFatPct !== 'number') {
-     console.warn("Missing required data for Protein target calculation:", { latestMetrics });
+     // console.warn("Missing required data for Protein target calculation:", { latestMetrics });
+    // Optional: Fallback using total body weight if LBM can't be calculated
+    // if (latestMetrics?.weightKg) { return Math.round(latestMetrics.weightKg * 1.6); }
     return null;
   }
 

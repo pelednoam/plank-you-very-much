@@ -1,135 +1,164 @@
 import dayjs from 'dayjs';
-import type { Workout, WorkoutType, UserProfile } from '@/types';
+import isBetween from 'dayjs/plugin/isBetween';
+import type { Workout, WorkoutType, UserProfile, ActivityLevel } from '@/types';
+
+dayjs.extend(isBetween);
 
 interface GeneratePlanOptions {
-  startDate: dayjs.Dayjs;
-  userProfile: Partial<UserProfile>; // Use partial as not all profile data might be needed initially
-  existingWorkouts?: Workout[]; // Optional: To avoid scheduling over existing manual entries
+  startDate: dayjs.Dayjs; // Should be start of the week
+  userProfile: Partial<UserProfile>;
+  existingWorkouts?: Workout[];
 }
 
+// Define default durations for different workout types
+const DEFAULT_DURATIONS: Record<WorkoutType, number> = {
+    CLIMB: 90,
+    SWIM: 60,
+    CORE: 30,
+    STRENGTH: 60,
+    MOBILITY: 20,
+    REST: 0, // Rest day is marked by absence of other workouts or a specific REST type workout
+};
+
+// Define intensity levels for scheduling constraints
+const WORKOUT_INTENSITY: Record<WorkoutType, 'high' | 'medium' | 'low' | 'rest'> = {
+    CLIMB: 'high',
+    STRENGTH: 'high',
+    SWIM: 'medium',
+    CORE: 'low',
+    MOBILITY: 'low',
+    REST: 'rest',
+};
+
 /**
- * Generates a basic weekly workout plan based on user profile and requirements.
- * Spec Section 8, Algo 4
+ * Generates an enhanced weekly workout plan based on user profile and requirements.
+ * Aims for better distribution and adapts to back issues.
  *
- * TODO:
- * - Improve workout distribution logic (avoid back-to-back intensity).
- * - Factor in existing workouts to avoid scheduling conflicts.
- * - Add STRENGTH workouts if equipment is available.
- * - Consider user's preferred workout times/days (future feature).
- * - Refine default durations/times.
+ * Spec Section 8, Algo 4 (Enhanced)
  */
 export function generateWeeklyPlan(
   options: GeneratePlanOptions
-): Omit<Workout, 'id' | 'completedAt'>[] { // Return workouts ready for store's addWorkout
-  const { startDate, userProfile, existingWorkouts } = options;
+): Omit<Workout, 'id' | 'completedAt'>[] {
+  const { startDate, userProfile, existingWorkouts = [] } = options;
   const weekPlan: Omit<Workout, 'id' | 'completedAt'>[] = [];
+  const schedule: { [dayIndex: number]: WorkoutType | 'TAKEN' | undefined } = {}; // 0 = Sunday, ..., 6 = Saturday
+  const daysInWeek = 7;
 
-  // Base weekly requirements
-  let requiredWorkouts: WorkoutType[] = [
-    'CLIMB', 'CLIMB',
-    'SWIM', 'SWIM',
-    'CORE', 'CORE',
-    'REST',
-  ];
+  // --- 1. Determine Weekly Targets --- 
+  const targetCounts: { [key in WorkoutType]?: number } = {
+    CLIMB: 2,
+    SWIM: 2,
+    CORE: 2,
+    STRENGTH: 1,
+    // REST/MOBILITY handled below
+  };
 
-  // Adapt plan based on back issues flag
   if (userProfile.backIssues) {
-    const climbIndex = requiredWorkouts.findIndex(type => type === 'CLIMB');
-    if (climbIndex !== -1) {
-      console.log("User has back issues, replacing one CLIMB with MOBILITY.");
-      requiredWorkouts.splice(climbIndex, 1, 'MOBILITY');
-    } else if (requiredWorkouts.length < 7) {
-      // Fallback: Add mobility if no climb was found but space exists
-      requiredWorkouts.push('MOBILITY');
-    } else {
-       // Fallback 2: Replace REST if no climb found and week is full
-       const restIndex = requiredWorkouts.findIndex(type => type === 'REST');
-       if (restIndex !== -1) {
-         console.log("User has back issues, no CLIMB found, replacing REST with MOBILITY.");
-         requiredWorkouts.splice(restIndex, 1, 'MOBILITY');
-       }
-    }
+    console.log("Adapting plan for back issues.");
+    targetCounts.CLIMB = 1; // Reduce climb
+    targetCounts.MOBILITY = 1; // Add mobility
+    // STRENGTH might also need adjustment depending on specific issue - keep 1 for now
+  } else {
+      targetCounts.MOBILITY = 0; // No specific mobility if no back issues
   }
 
-  // Simple distribution: Assign one workout per day for now.
-  // Using a Map to track which required workouts have been assigned
-  const assignedWorkouts = new Map<WorkoutType, number>();
-  requiredWorkouts.forEach(type => assignedWorkouts.set(type, (assignedWorkouts.get(type) || 0) + 1));
+  // Calculate total required workouts to ensure we aim for roughly one per day
+  let totalRequired = Object.values(targetCounts).reduce((sum, count) => sum + (count || 0), 0);
+  // We implicitly want one REST day unless totalRequired >= 7
+  let needsRestDay = totalRequired < daysInWeek;
 
-  const workoutSchedule: { [dayOfWeek: number]: WorkoutType | undefined } = {};
-
-  // Assign workouts day by day, trying to fulfill requirements
-  // Basic logic: prioritize assigning required types, then fill remaining
-  const days = Array.from({length: 7}, (_, i) => startDate.add(i, 'day').day()); // Get days [0..6] for the week
-
-  // Attempt a somewhat balanced assignment (example)
-  const preferredOrder: WorkoutType[] = ['CLIMB', 'SWIM', 'CORE', 'MOBILITY', 'REST']; // Order matters slightly
-
-  days.forEach(dayIndex => {
-      for (const type of preferredOrder) {
-          if ((assignedWorkouts.get(type) || 0) > 0 && !workoutSchedule[dayIndex]) {
-               // Very basic conflict avoidance (e.g., don't put two climbs next to each other if possible)
-               const prevDayWorkout = workoutSchedule[(dayIndex + 6) % 7]; // Check previous day
-               if (type === 'CLIMB' && prevDayWorkout === 'CLIMB') continue; // Avoid back-to-back climb for now
-
-               workoutSchedule[dayIndex] = type;
-               assignedWorkouts.set(type, (assignedWorkouts.get(type) || 1) - 1);
-               break; // Move to next day
-          }
-      }
-  });
-
-  // Fill any remaining days if schedule incomplete (shouldn't happen with 7 required)
-  days.forEach(dayIndex => {
-      if (!workoutSchedule[dayIndex]) {
-          const remainingType = preferredOrder.find(type => (assignedWorkouts.get(type) || 0) > 0);
-          if (remainingType) {
-              workoutSchedule[dayIndex] = remainingType;
-               assignedWorkouts.set(remainingType, (assignedWorkouts.get(remainingType) || 1) - 1);
-          }
-      }
-  });
-
-
-  for (let i = 0; i < 7; i++) {
+  // --- 2. Identify Available Days --- 
+  for (let i = 0; i < daysInWeek; i++) {
     const currentDay = startDate.add(i, 'day');
-    const workoutType = workoutSchedule[currentDay.day()]; // Get workout based on day of week (0=Sun, 6=Sat)
-
-    if (!workoutType) {
-      console.warn(`No workout assigned for ${currentDay.format('YYYY-MM-DD')} (Day ${currentDay.day()})`);
-      continue;
+    const hasExistingWorkout = existingWorkouts.some(w => dayjs(w.plannedAt).isSame(currentDay, 'day'));
+    if (hasExistingWorkout) {
+      schedule[i] = 'TAKEN';
+      console.log(`Day ${i} (${currentDay.format('YYYY-MM-DD')}) is taken by existing workout.`);
+      // If a day is taken, we might need fewer generated workouts
+      totalRequired = Math.max(0, totalRequired -1); // Decrement needed, effectively removing a slot
+      needsRestDay = totalRequired < (daysInWeek - 1); // Re-evaluate if rest day needed
     }
-
-    // Default times/durations (can be refined)
-    let durationMin = 60;
-    let defaultTime = '09:00:00'; // Default to 9 AM
-
-    if (workoutType === 'CORE' || workoutType === 'MOBILITY') {
-      durationMin = 30;
-    } else if (workoutType === 'REST') {
-      durationMin = 0; // Represent as 0 duration, full-day marker
-      defaultTime = '00:00:00';
-    }
-
-    const plannedAt = dayjs(`${currentDay.format('YYYY-MM-DD')}T${defaultTime}`).toISOString();
-
-    // Check for conflicts with existing workouts (basic check)
-    const conflict = existingWorkouts?.some(existing =>
-        dayjs(existing.plannedAt).isSame(currentDay, 'day')
-    );
-
-    if (conflict) {
-        console.log(`Skipping generated ${workoutType} on ${currentDay.format('YYYY-MM-DD')} due to existing workout.`);
-        continue;
-    }
-
-    weekPlan.push({
-      type: workoutType,
-      plannedAt,
-      durationMin,
-    });
   }
 
-  console.log("Generated plan for week starting", startDate.format('YYYY-MM-DD'), weekPlan);
+  // --- 3. Prioritize Placement --- 
+  const placeWorkout = (type: WorkoutType, dayIndex: number): boolean => {
+      if (schedule[dayIndex] === undefined) {
+          schedule[dayIndex] = type;
+          targetCounts[type] = (targetCounts[type] ?? 1) - 1;
+          return true;
+      }
+      return false;
+  };
+
+  const findPlacement = (type: WorkoutType, preferredDays?: number[], avoidAdjacent?: WorkoutType[]): boolean => {
+      const intensity = WORKOUT_INTENSITY[type];
+      const daysToTry = preferredDays ? preferredDays : Array.from({ length: daysInWeek }, (_, i) => i);
+
+      for (const dayIndex of daysToTry) {
+          if (schedule[dayIndex] === undefined) {
+              // Check constraints
+              const prevDayIndex = (dayIndex - 1 + daysInWeek) % daysInWeek;
+              const nextDayIndex = (dayIndex + 1) % daysInWeek;
+              const prevWorkout = schedule[prevDayIndex]; // Type is WorkoutType | 'TAKEN' | undefined
+              const nextWorkout = schedule[nextDayIndex]; // Type is WorkoutType | 'TAKEN' | undefined
+
+              // Avoid adjacent high intensity?
+              if (intensity === 'high') {
+                  if (prevWorkout && prevWorkout !== 'TAKEN' && WORKOUT_INTENSITY[prevWorkout] === 'high') continue;
+                  if (nextWorkout && nextWorkout !== 'TAKEN' && WORKOUT_INTENSITY[nextWorkout] === 'high') continue;
+              }
+              
+              // Avoid adjacent specific types?
+              if (avoidAdjacent) {
+                  if (prevWorkout && prevWorkout !== 'TAKEN' && avoidAdjacent.includes(prevWorkout)) continue;
+                  if (nextWorkout && nextWorkout !== 'TAKEN' && avoidAdjacent.includes(nextWorkout)) continue;
+              }
+
+              // Place it!
+              return placeWorkout(type, dayIndex);
+          }
+      }
+      // Fallback: Place in first available slot if preferred/constrained placement failed
+      for (let i = 0; i < daysInWeek; i++) {
+          if (schedule[i] === undefined) {
+              return placeWorkout(type, i);
+          }
+      }
+      return false; // No slot found
+  };
+
+  // 3a. Place REST day (if needed)
+  if (needsRestDay) {
+    findPlacement('REST', [3, 6, 5]); // Prefer Wed, Sat, Fri
+  }
+
+  // 3b. Place High Intensity (CLIMB, STRENGTH)
+  for (let i = 0; i < (targetCounts.CLIMB ?? 0); i++) findPlacement('CLIMB', undefined, ['REST']);
+  for (let i = 0; i < (targetCounts.STRENGTH ?? 0); i++) findPlacement('STRENGTH', undefined, ['REST']);
+
+  // 3c. Place MOBILITY (if needed)
+  for (let i = 0; i < (targetCounts.MOBILITY ?? 0); i++) findPlacement('MOBILITY');
+
+  // 3d. Place Medium/Low Intensity (SWIM, CORE)
+  for (let i = 0; i < (targetCounts.SWIM ?? 0); i++) findPlacement('SWIM');
+  for (let i = 0; i < (targetCounts.CORE ?? 0); i++) findPlacement('CORE');
+
+  // --- 4. Generate Workout Objects --- 
+  for (let i = 0; i < daysInWeek; i++) {
+    const workoutType = schedule[i];
+    if (workoutType && workoutType !== 'TAKEN' && workoutType !== 'REST') {
+      const currentDay = startDate.add(i, 'day');
+      const plannedAt = dayjs(`${currentDay.format('YYYY-MM-DD')}T09:00:00`).toISOString(); // Default 9 AM
+      const durationMin = DEFAULT_DURATIONS[workoutType];
+
+      weekPlan.push({
+        type: workoutType,
+        plannedAt,
+        durationMin,
+      });
+    }
+  }
+
+  console.log("Generated enhanced plan:", weekPlan);
   return weekPlan;
 } 
