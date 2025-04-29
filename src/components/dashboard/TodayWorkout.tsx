@@ -1,12 +1,13 @@
 "use client";
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useWorkoutStore, selectTodayWorkouts } from '@/store/workoutStore';
 import type { Workout } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CheckCircle2, Circle, PlayCircle, Dumbbell, Zap, Waves, PersonStanding } from 'lucide-react'; // Icons
 import dayjs from 'dayjs';
+import { WorkoutDetailsModal } from '@/features/planner/components/WorkoutDetailsModal'; // Import the modal
 
 // Helper to get an icon based on workout type
 const getWorkoutIcon = (type: Workout['type']) => {
@@ -24,16 +25,19 @@ const getWorkoutIcon = (type: Workout['type']) => {
 const TodayWorkout: React.FC = () => {
     const todayWorkouts = useWorkoutStore(selectTodayWorkouts);
     const toggleWorkoutComplete = useWorkoutStore((state) => state.toggleWorkoutComplete);
+    
+    // State for modal control
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
 
-    const handleToggle = (id: string) => {
+    const handleToggle = (e: React.MouseEvent, id: string) => {
+        e.stopPropagation(); // Prevent opening modal when clicking toggle button
         toggleWorkoutComplete(id);
     };
 
-    // TODO: Implement navigation or modal opening for starting a workout
-    const handleStartWorkout = (id: string) => {
-        console.log(`Start workout ${id}`);
-        // Example: router.push(`/workout/${id}`); or open a modal
-        alert('Start workout functionality not implemented yet.');
+    const handleOpenModal = (id: string) => {
+        setSelectedWorkoutId(id);
+        setIsModalOpen(true);
     };
 
     return (
@@ -43,11 +47,15 @@ const TodayWorkout: React.FC = () => {
             </CardHeader>
             <CardContent>
                 {todayWorkouts.length === 0 ? (
-                    <p className="text-muted-foreground">No workouts planned for today. Enjoy your rest!</p>
+                    <p className="text-muted-foreground">No activities planned for today. Enjoy your rest!</p>
                 ) : (
                     <ul className="space-y-3">
                         {todayWorkouts.map((workout) => (
-                            <li key={workout.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-md border">
+                            <li 
+                                key={workout.id} 
+                                className="flex items-center justify-between p-3 bg-slate-50 rounded-md border cursor-pointer hover:bg-slate-100 transition-colors"
+                                onClick={() => handleOpenModal(workout.id)} // Open modal on li click
+                            >
                                 <div className="flex items-center">
                                     {getWorkoutIcon(workout.type)}
                                     <div>
@@ -57,18 +65,13 @@ const TodayWorkout: React.FC = () => {
                                     </div>
                                 </div>
                                 <div className="flex items-center space-x-2">
-                                    {/* Show Start button only if not completed */}
-                                    {!workout.completedAt && (
-                                         <Button variant="outline" size="sm" onClick={() => handleStartWorkout(workout.id)} title="Start Workout">
-                                             <PlayCircle className="h-4 w-4" />
-                                             <span className="sr-only">Start</span>
-                                         </Button>
-                                    )}
-                                    {/* Completion Toggle Button */}
+                                    {/* Removed Start button - modal replaces it */}
+                                    
+                                    {/* Completion Toggle Button - stop propagation */}
                                     <Button 
                                         variant={workout.completedAt ? "secondary" : "ghost"}
                                         size="sm" 
-                                        onClick={() => handleToggle(workout.id)}
+                                        onClick={(e) => handleToggle(e, workout.id)} // Pass event to stop propagation
                                         title={workout.completedAt ? "Mark as Incomplete" : "Mark as Complete"}
                                     >
                                         {workout.completedAt ? <CheckCircle2 className="h-4 w-4 text-green-600" /> : <Circle className="h-4 w-4 text-gray-400" />}
@@ -80,6 +83,20 @@ const TodayWorkout: React.FC = () => {
                     </ul>
                 )}
             </CardContent>
+
+            {/* Render the Modal conditionally */} 
+            {selectedWorkoutId && (
+                 <WorkoutDetailsModal
+                    workoutId={selectedWorkoutId}
+                    isOpen={isModalOpen}
+                    onOpenChange={(open) => {
+                        setIsModalOpen(open);
+                        if (!open) {
+                            setSelectedWorkoutId(null); // Clear selection when modal closes
+                        }
+                    }}
+                />
+            )}
         </Card>
     );
 };

@@ -1,9 +1,26 @@
-import { type NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 // TODO: Replace placeholder logic with actual database interaction
 // TODO: Implement proper validation for endpoint and userId
 // TODO: Implement robust error handling
 // TODO: Implement authentication to validate userId
+
+// Placeholder function to simulate removing subscription from a database
+async function removeSubscriptionFromDb(userId: string, endpoint: string) {
+    console.log(`[API UNSUBSCRIBE PLACEHOLDER] Removing subscription for userId: ${userId}, endpoint: ${endpoint}`);
+    // Example DB interaction:
+    // try {
+    //     const result = await db.userSubscriptions.deleteMany({ 
+    //         where: { userId: userId, endpoint: endpoint } 
+    //     });
+    //     console.log(`[API UNSUBSCRIBE] Subscriptions removed for user ${userId}, endpoint ${endpoint}. Count: ${result.count}`);
+    //     return true;
+    // } catch (error) {
+    //     console.error(`[API UNSUBSCRIBE] Error removing subscription for user ${userId}:`, error);
+    //     return false;
+    // }
+     return true; // Simulate success
+}
 
 /**
  * Deletes a push subscription associated with a user, identified by its endpoint.
@@ -14,36 +31,29 @@ export async function POST(request: NextRequest) {
         const body = await request.json();
         const { endpoint, userId } = body;
 
-        // --- Basic Validation ---
-        if (!endpoint || !userId) {
-            console.error('[API Unsubscribe] Invalid request body:', body);
-            return NextResponse.json({ error: 'Invalid data: Missing endpoint or userId.' }, { status: 400 });
+        // **IMPORTANT: Add User Validation Here**
+        // Verify the userId corresponds to an authenticated user session.
+        if (!userId || userId === 'PLACEHOLDER_USER_ID_FOR_NOTIFICATIONS') {
+             console.warn('[API UNSUBSCRIBE] Attempted unsubscription with invalid/placeholder userId:', userId);
+            return NextResponse.json({ error: 'User validation failed' }, { status: 401 });
         }
 
-        // --- Placeholder User Authentication Check ---
-        // Verify userId matches the authenticated user
-        console.log(`[API Unsubscribe] Received request for user: ${userId}, endpoint: ${endpoint}`);
-
-        // --- Placeholder Database Deletion ---
-        try {
-            // Example: await db.deleteSubscription(userId, endpoint);
-            console.log(`[DB Placeholder] Deleting subscription for user ${userId} with endpoint ${endpoint}`);
-            // Simulate success
-            
-        } catch (dbError) {
-            console.error(`[API Unsubscribe] Database error deleting subscription for user ${userId}:`, dbError);
-            return NextResponse.json({ error: 'Failed to delete subscription.' }, { status: 500 });
+        if (!endpoint) {
+             console.warn('[API UNSUBSCRIBE] Invalid request: Missing endpoint.');
+            return NextResponse.json({ error: 'Missing subscription endpoint' }, { status: 400 });
         }
-        // --- End Placeholder Database Deletion ---
 
-        // --- Send Success Response ---
-        return NextResponse.json({ message: 'Subscription deleted successfully.' }, { status: 200 });
+        // Remove the subscription (replace placeholder function)
+        const success = await removeSubscriptionFromDb(userId, endpoint);
+
+        if (success) {
+             return NextResponse.json({ message: 'Subscription removed' }, { status: 200 });
+        } else {
+             return NextResponse.json({ error: 'Failed to remove subscription' }, { status: 500 });
+        }
 
     } catch (error) {
-        console.error('[API Unsubscribe] Error processing request:', error);
-        if (error instanceof SyntaxError) {
-             return NextResponse.json({ error: 'Invalid JSON format in request body.' }, { status: 400 });
-         }
-        return NextResponse.json({ error: 'Internal server error.' }, { status: 500 });
+        console.error('[API UNSUBSCRIBE] Error processing request:', error);
+        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
 } 

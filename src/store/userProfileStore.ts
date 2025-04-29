@@ -27,8 +27,8 @@ interface UserProfileState {
   hasCompletedTutorial: (tutorialId: string) => boolean;
 }
 
-// Default initial state for a new profile
-const defaultProfile: UserProfile = {
+// Export the default profile object
+export const defaultProfile: UserProfile = {
   name: '',
   lactoseSensitive: false,
   completedOnboarding: false,
@@ -39,6 +39,16 @@ const defaultProfile: UserProfile = {
       equipmentCues: false,
       syncStatus: true,
   },
+  // Add other fields with defaults if necessary based on UserProfile type
+  // dob: undefined, 
+  // sex: undefined,
+  // heightCm: undefined,
+  // activityLevel: undefined,
+  // targetBodyFatPct: undefined,
+  // targetDate: undefined,
+  // backIssues: undefined,
+  // equipment: undefined,
+  // fitbitUserId: undefined,
 };
 
 // Initial state for the store slice

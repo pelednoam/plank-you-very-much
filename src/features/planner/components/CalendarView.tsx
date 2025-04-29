@@ -8,6 +8,7 @@ import isBetween from 'dayjs/plugin/isBetween';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { WorkoutDetailsModal } from '@/features/planner/components/WorkoutDetailsModal';
 
 dayjs.extend(isBetween);
 
@@ -56,6 +57,10 @@ const CalendarView: React.FC = () => {
     const [currentMonth, setCurrentMonth] = useState(dayjs());
     const allWorkouts = useWorkoutStore((state) => state.workouts); // Fetch all workouts
 
+    // State for modal control
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
+
     const daysInMonthView = useMemo(() => generateMonthDays(currentMonth), [currentMonth]);
     const monthStart = daysInMonthView[0].date;
     const monthEnd = daysInMonthView[daysInMonthView.length - 1].date;
@@ -73,10 +78,10 @@ const CalendarView: React.FC = () => {
         setCurrentMonth(currentMonth.add(1, 'month'));
     };
 
-    const handleWorkoutClick = (workout: Workout) => {
-        // TODO: Open WorkoutDetails modal/panel
-        console.log('Clicked workout:', workout);
-        alert(`Workout Details for ${workout.type} - ${workout.durationMin} min (not implemented)`);
+    // Updated handler to open the modal
+    const handleWorkoutClick = (workoutId: string) => {
+        setSelectedWorkoutId(workoutId);
+        setIsModalOpen(true);
     };
 
     const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -125,8 +130,8 @@ const CalendarView: React.FC = () => {
                                     {workoutsOnDate.map(workout => (
                                         <button 
                                             key={workout.id} 
-                                            onClick={() => handleWorkoutClick(workout)}
-                                            className={`w-full text-left p-1 rounded text-xs block truncate ${workout.completedAt ? 'opacity-60' : ''}`}
+                                            onClick={() => handleWorkoutClick(workout.id)}
+                                            className={`w-full text-left p-1 rounded text-xs block truncate hover:bg-gray-100 ${workout.completedAt ? 'opacity-60' : ''}`}
                                             title={`${workout.type} - ${workout.durationMin} min ${workout.completedAt ? '(Completed)' : ''}`}
                                         >
                                             {getWorkoutBadge(workout.type)}
@@ -139,6 +144,20 @@ const CalendarView: React.FC = () => {
                     })}
                 </div>
             </CardContent>
+
+            {/* Render the Modal conditionally */} 
+            {selectedWorkoutId && (
+                 <WorkoutDetailsModal
+                    workoutId={selectedWorkoutId}
+                    isOpen={isModalOpen}
+                    onOpenChange={(open) => {
+                        setIsModalOpen(open);
+                        if (!open) {
+                            setSelectedWorkoutId(null); // Clear selection when modal closes
+                        }
+                    }}
+                />
+            )}
         </Card>
     );
 };

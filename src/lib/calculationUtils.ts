@@ -68,20 +68,36 @@ export function calculateTDEE(bmr: number | null, activityLevel: ActivityLevel |
 }
 
 /**
- * Calculates the target daily calorie intake for a deficit.
- * Uses a fixed deficit value for now.
- *
- * TODO: Make deficit configurable or adaptive based on goals.
+ * Calculates the target daily calorie intake.
+ * Uses TDEE and applies a deficit, potentially adjusted by user goals.
  *
  * @param tdee - The calculated TDEE.
+ * @param targetBodyFatPct - Optional user goal for target body fat %.
+ * @param targetDate - Optional user goal for target date.
  * @returns The target daily calories, or null if TDEE is null.
  */
-export function calculateCalorieTarget(tdee: number | null): number | null {
+export function calculateCalorieTarget(
+    tdee: number | null,
+    targetBodyFatPct?: number, // Added goal param
+    targetDate?: string // Added goal param
+): number | null {
   if (tdee === null) {
     return null;
   }
 
-  const calorieDeficit = 300; // Fixed deficit from spec (Section 8.2)
+  // Basic dynamic deficit: Use a larger deficit if goals are set
+  const baseDeficit = 300; // Default deficit
+  const goalDeficit = 500; // Increased deficit when goals are present
+  
+  // Use goalDeficit if both target % and date are set and valid
+  const useGoalDeficit = 
+      targetBodyFatPct !== undefined && targetBodyFatPct > 0 &&
+      targetDate !== undefined && dayjs(targetDate).isValid() && dayjs(targetDate).isAfter(dayjs());
+
+  const calorieDeficit = useGoalDeficit ? goalDeficit : baseDeficit; 
+
+  console.log(`Using calorie deficit: ${calorieDeficit} (TDEE: ${tdee})`);
+
   return tdee - calorieDeficit;
 }
 
@@ -89,25 +105,35 @@ export function calculateCalorieTarget(tdee: number | null): number | null {
  * Calculates the target daily protein intake based on Lean Body Mass (LBM).
  *
  * Requires LBM, which can be calculated from weight and body fat percentage.
- *
- * TODO: Consider fallback if LBM is not available (e.g., estimate based on weight: 1.6-2.2g/kg total body weight).
+ * Protein needs might increase slightly during a steeper deficit (goal-oriented).
  *
  * @param latestMetrics - The user's latest body metrics containing weightKg and bodyFatPct.
+ * @param targetBodyFatPct - Optional user goal for target body fat %.
  * @returns The target daily protein in grams, or null if required data is missing.
  */
-export function calculateProteinTarget(latestMetrics: BodyMetrics | null): number | null {
+export function calculateProteinTarget(
+    latestMetrics: BodyMetrics | null,
+    targetBodyFatPct?: number // Added goal param (for potential future adjustment)
+): number | null {
   if (!latestMetrics?.weightKg || typeof latestMetrics?.bodyFatPct !== 'number') {
-     // console.warn("Missing required data for Protein target calculation:", { latestMetrics });
-    // Optional: Fallback using total body weight if LBM can't be calculated
-    // if (latestMetrics?.weightKg) { return Math.round(latestMetrics.weightKg * 1.6); }
+    // Fallback using total body weight (e.g., 1.6g/kg)
+    if (latestMetrics?.weightKg) { 
+        console.log('Calculating protein target based on total weight (LBM unavailable)');
+        return Math.round(latestMetrics.weightKg * 1.6);
+     }
     return null;
   }
 
   const weight = latestMetrics.weightKg;
-  const bodyFatPercent = latestMetrics.bodyFatPct / 100; // Convert percentage to decimal
+  const bodyFatPercent = latestMetrics.bodyFatPct / 100; 
   const leanBodyMass = weight * (1 - bodyFatPercent);
 
-  const proteinPerKgLBM = 1.6; // From spec (Section 8.3)
+  // Spec uses 1.6 g/kg LBM. Could potentially increase slightly if targetBodyFatPct is set?
+  const proteinPerKgLBM = 1.6; 
+  // Example potential adjustment:
+  // const proteinPerKgLBM = (targetBodyFatPct !== undefined && targetBodyFatPct > 0) ? 1.8 : 1.6;
+
+  console.log(`Calculating protein target based on LBM (${leanBodyMass.toFixed(1)}kg) at ${proteinPerKgLBM}g/kg`);
 
   return Math.round(leanBodyMass * proteinPerKgLBM);
 } 

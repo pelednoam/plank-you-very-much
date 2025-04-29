@@ -61,6 +61,14 @@ export interface FitbitDaily {
   sleepMinutes?: number;
 }
 
+// Added based on fitbitActions requirements
+export interface FitbitTokenData {
+  accessToken: string;
+  refreshToken: string;
+  fitbitUserId: string; // ID of the user on Fitbit's platform
+  expiresAt: number;    // Timestamp (seconds since epoch) when the access token expires
+}
+
 export interface NfcTag {
   id: string; // Unique ID for the tag record in our DB, not necessarily the physical UID
   physicalUid?: string; // Optional: Store the actual hardware UID if needed
@@ -109,7 +117,7 @@ export interface UserProfile {
   id?: string; // Add optional user ID
   name: string;
   dob?: string; // Date of birth for BMR calculation
-  sex?: 'male' | 'female'; // Added for BMR calculation
+  sex?: 'male' | 'female' | 'prefer_not_say'; // Added 'prefer_not_say'
   heightCm?: number;
   activityLevel?: 'SEDENTARY' | 'LIGHT' | 'MODERATE' | 'ACTIVE' | 'VERY_ACTIVE';
   // Goals

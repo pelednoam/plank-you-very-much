@@ -2,6 +2,7 @@
 
 import React from 'react';
 import OnboardingForm from '@/features/onboarding/components/OnboardingForm';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useUserProfileStore, selectIsOnboardingComplete } from '@/store/userProfileStore';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
@@ -26,7 +27,11 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div>
+    <div className="container mx-auto max-w-2xl py-8">
+      <h1 className="text-3xl font-bold mb-6 text-center">Welcome to Plank You Very Much!</h1>
+      <p className="text-center text-muted-foreground mb-8">
+        Let's get some basic information to personalize your experience.
+      </p>
       <OnboardingForm />
     </div>
   );

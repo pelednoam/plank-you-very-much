@@ -1,173 +1,360 @@
-'use client';
+"use client";
 
 import React, { useState } from 'react';
-import { useForm, SubmitHandler } from 'react-hook-form';
+import { useRouter } from 'next/navigation';
+import { useForm, ControllerRenderProps, FieldValues } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
+import { onboardingSchema, OnboardingFormData } from '@/features/onboarding/schemas/onboardingSchema';
 import { useUserProfileStore } from '@/store/userProfileStore';
-import type { UserProfile } from '@/types';
-import { useRouter } from 'next/navigation'; // For redirecting
+import { useMetricsStore } from '@/store/metricsStore';
+import type { BodyMetrics } from '@/types';
+import dayjs from 'dayjs';
 
-// --- Validation Schema --- (using Zod)
-// Split schema per step if needed, or use a single large one
-const onboardingSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  dob: z.string().optional(), // Consider date validation
-  heightCm: z.number().positive('Height must be positive').optional(),
-  targetBodyFatPct: z.number().min(3, 'Target too low').max(50, 'Target too high').optional(),
-  targetDate: z.string().optional(), // Consider date validation
-  lactoseSensitive: z.boolean(),
-  backIssues: z.boolean().optional(),
-  // equipment: z.array(z.string()).optional(), // Add if needed
-});
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardFooter,
+    CardHeader,
+    CardTitle,
+} from "@/components/ui/card";
+import {
+    Form,
+    FormControl,
+    FormDescription,
+    FormField,
+    FormItem,
+    FormLabel,
+    FormMessage,
+} from "@/components/ui/form";
+import { toast } from 'sonner';
 
-// Infer the TS type from the schema
-type OnboardingFormData = z.infer<typeof onboardingSchema>;
+const TOTAL_STEPS = 5;
 
-// --- Component --- 
+type FormFieldRenderProps = {
+    field: ControllerRenderProps<OnboardingFormData, any>;
+};
+
 export default function OnboardingForm() {
-  const [step, setStep] = useState(1);
-  const completeOnboarding = useUserProfileStore((state) => state.completeOnboarding);
-  const router = useRouter();
+    const [currentStep, setCurrentStep] = useState(1);
+    const router = useRouter();
+    const { completeOnboarding } = useUserProfileStore();
+    const { addMetric } = useMetricsStore();
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isValid },
-    trigger, // To validate specific steps
-  } = useForm<OnboardingFormData>({
-    resolver: zodResolver(onboardingSchema),
-    mode: 'onBlur', // Validate on blur
-    defaultValues: {
-      lactoseSensitive: false, // Default value
-      backIssues: false,
-    }
-  });
+    const form = useForm<OnboardingFormData>({
+        resolver: zodResolver(onboardingSchema),
+        defaultValues: {
+            name: '',
+            dob: '',
+            sex: undefined,
+            heightCm: undefined,
+            initialWeightKg: undefined,
+            initialBodyFatPct: undefined,
+            activityLevel: undefined,
+            targetBodyFatPct: undefined,
+            targetDate: '',
+            lactoseSensitive: false,
+            backIssues: false,
+        },
+    });
 
-  const onSubmit: SubmitHandler<OnboardingFormData> = (data) => {
-    console.log('Onboarding submitted:', data);
-    // Data is already validated by zodResolver
-    const profileData: Omit<UserProfile, 'completedOnboarding'> = {
-      ...data,
-      // Ensure optional number fields that are empty strings become undefined
-      heightCm: data.heightCm ? Number(data.heightCm) : undefined,
-      targetBodyFatPct: data.targetBodyFatPct ? Number(data.targetBodyFatPct) : undefined,
-      // Add equipment processing if included
+    const onSubmit = async (data: OnboardingFormData) => {
+        console.log("Onboarding form submitted:", data);
+        try {
+            const profileDataForAction = {
+                name: data.name,
+                dob: data.dob,
+                sex: data.sex,
+                heightCm: data.heightCm,
+                activityLevel: data.activityLevel,
+                targetBodyFatPct: data.targetBodyFatPct,
+                targetDate: data.targetDate,
+                lactoseSensitive: data.lactoseSensitive,
+                backIssues: data.backIssues,
+            };
+            completeOnboarding(profileDataForAction as any);
+
+            const initialMetric: BodyMetrics = {
+                date: dayjs().toISOString(),
+                weightKg: Number(data.initialWeightKg),
+                bodyFatPct: data.initialBodyFatPct ? Number(data.initialBodyFatPct) : undefined,
+                source: 'MANUAL' as const,
+            };
+            addMetric(initialMetric);
+
+            toast.success("Profile setup complete!", { description: "Redirecting to your dashboard..." });
+
+            router.push('/');
+
+        } catch (error) {
+            console.error("Error saving onboarding data:", error);
+            toast.error("Failed to save profile", { description: "An unexpected error occurred. Please try again." });
+        }
     };
-    completeOnboarding(profileData);
-    // Redirect to dashboard after completion
-    router.push('/');
-  };
 
-  const nextStep = async () => {
-    let fieldsToValidate: (keyof OnboardingFormData)[] = [];
-    if (step === 1) {
-      fieldsToValidate = ['name', 'dob', 'heightCm']; // Fields for step 1
-    } else if (step === 2) {
-      fieldsToValidate = ['targetBodyFatPct', 'targetDate']; // Fields for step 2
-    } else if (step === 3) {
-      fieldsToValidate = ['lactoseSensitive', 'backIssues']; // Fields for step 3
-    }
+    const nextStep = async () => {
+        let fieldsToValidate: (keyof OnboardingFormData)[] = [];
+        switch (currentStep) {
+            case 1: fieldsToValidate = ['name', 'dob', 'sex', 'heightCm']; break;
+            case 2: fieldsToValidate = ['initialWeightKg', 'initialBodyFatPct']; break;
+            case 3: fieldsToValidate = ['activityLevel']; break;
+            case 4: fieldsToValidate = ['targetBodyFatPct', 'targetDate']; break;
+            case 5: fieldsToValidate = ['lactoseSensitive', 'backIssues']; break;
+        }
 
-    const isValidStep = await trigger(fieldsToValidate);
-    if (isValidStep) {
-      setStep((prev) => prev + 1);
-    }
-  };
+        const isValid = await form.trigger(fieldsToValidate);
+        if (isValid) {
+            if (currentStep < TOTAL_STEPS) {
+                setCurrentStep(prev => prev + 1);
+            } else {
+                form.handleSubmit(onSubmit)();
+            }
+        }
+    };
 
-  const prevStep = () => {
-    setStep((prev) => prev - 1);
-  };
+    const prevStep = () => {
+        if (currentStep > 1) {
+            setCurrentStep(prev => prev - 1);
+        }
+    };
 
-  // --- Render Logic --- 
-  return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 max-w-lg mx-auto p-6 bg-white shadow rounded">
-      <h2 className="text-2xl font-semibold mb-4">Welcome! Let's get started (Step {step}/3)</h2>
+    return (
+        <Form {...form}>
+            <form onSubmit={(e) => e.preventDefault()} className="space-y-8">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Step {currentStep} of {TOTAL_STEPS}</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        {currentStep === 1 && (
+                            <div className="space-y-4">
+                                <FormField
+                                    control={form.control}
+                                    name="name"
+                                    render={({ field }: FormFieldRenderProps) => (
+                                        <FormItem>
+                                            <FormLabel>Full Name</FormLabel>
+                                            <FormControl><Input placeholder="Your Name" {...field} /></FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="dob"
+                                    render={({ field }: FormFieldRenderProps) => (
+                                        <FormItem>
+                                            <FormLabel>Date of Birth</FormLabel>
+                                            <FormControl><Input type="date" placeholder="YYYY-MM-DD" {...field} /></FormControl>
+                                            <FormDescription>Used to calculate BMR.</FormDescription>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="sex"
+                                    render={({ field }: FormFieldRenderProps) => (
+                                        <FormItem className="space-y-3">
+                                            <FormLabel>Sex</FormLabel>
+                                            <FormControl>
+                                                <RadioGroup
+                                                    onValueChange={field.onChange}
+                                                    defaultValue={field.value}
+                                                    className="flex flex-col space-y-1"
+                                                >
+                                                    <FormItem className="flex items-center space-x-3 space-y-0">
+                                                        <FormControl><RadioGroupItem value="male" /></FormControl>
+                                                        <FormLabel className="font-normal">Male</FormLabel>
+                                                    </FormItem>
+                                                    <FormItem className="flex items-center space-x-3 space-y-0">
+                                                        <FormControl><RadioGroupItem value="female" /></FormControl>
+                                                        <FormLabel className="font-normal">Female</FormLabel>
+                                                    </FormItem>
+                                                    <FormItem className="flex items-center space-x-3 space-y-0">
+                                                         <FormControl><RadioGroupItem value="prefer_not_say" /></FormControl>
+                                                        <FormLabel className="font-normal">Prefer not to say</FormLabel>
+                                                    </FormItem>
+                                                </RadioGroup>
+                                            </FormControl>
+                                            <FormDescription>Used for BMR calculation.</FormDescription>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                 <FormField
+                                    control={form.control}
+                                    name="heightCm"
+                                    render={({ field }: FormFieldRenderProps) => (
+                                        <FormItem>
+                                            <FormLabel>Height (cm)</FormLabel>
+                                            <FormControl><Input type="number" placeholder="e.g., 175" {...field} /></FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
+                        )}
 
-      {/* Step 1: Basic Info */} 
-      {step === 1 && (
-        <div className="space-y-4">
-          <div>
-            <label htmlFor="name" className="block text-sm font-medium text-gray-700">Name</label>
-            <input id="name" {...register('name')} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" />
-            {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name.message}</p>}
-          </div>
-          <div>
-            <label htmlFor="dob" className="block text-sm font-medium text-gray-700">Date of Birth (Optional)</label>
-            <input id="dob" type="date" {...register('dob')} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" />
-            {/* Add date validation error display if needed */}
-          </div>
-          <div>
-            <label htmlFor="heightCm" className="block text-sm font-medium text-gray-700">Height (cm) (Optional)</label>
-            <input id="heightCm" type="number" {...register('heightCm', { valueAsNumber: true })} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" />
-             {errors.heightCm && <p className="mt-1 text-sm text-red-600">{errors.heightCm.message}</p>}
-         </div>
-        </div>
-      )}
+                        {currentStep === 2 && (
+                            <div className="space-y-4">
+                                <FormField
+                                    control={form.control}
+                                    name="initialWeightKg"
+                                    render={({ field }: FormFieldRenderProps) => (
+                                        <FormItem>
+                                            <FormLabel>Current Weight (kg)</FormLabel>
+                                            <FormControl><Input type="number" step="0.1" placeholder="e.g., 70.5" {...field} /></FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                 <FormField
+                                    control={form.control}
+                                    name="initialBodyFatPct"
+                                    render={({ field }: FormFieldRenderProps) => (
+                                        <FormItem>
+                                            <FormLabel>Current Body Fat (%) (Optional)</FormLabel>
+                                            <FormControl><Input type="number" step="0.1" placeholder="e.g., 14.2" {...field} /></FormControl>
+                                             <FormDescription>If you know it from a recent measurement.</FormDescription>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
+                        )}
 
-      {/* Step 2: Goals */} 
-      {step === 2 && (
-        <div className="space-y-4">
-          <div>
-            <label htmlFor="targetBodyFatPct" className="block text-sm font-medium text-gray-700">Target Body Fat % (Optional)</label>
-            <input id="targetBodyFatPct" type="number" step="0.1" {...register('targetBodyFatPct', { valueAsNumber: true })} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" />
-            {errors.targetBodyFatPct && <p className="mt-1 text-sm text-red-600">{errors.targetBodyFatPct.message}</p>}
-          </div>
-          <div>
-            <label htmlFor="targetDate" className="block text-sm font-medium text-gray-700">Target Date (Optional)</label>
-            <input id="targetDate" type="date" {...register('targetDate')} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" />
-             {/* Add date validation error display if needed */}
-         </div>
-        </div>
-      )}
+                        {currentStep === 3 && (
+                             <FormField
+                                control={form.control}
+                                name="activityLevel"
+                                render={({ field }: FormFieldRenderProps) => (
+                                    <FormItem className="space-y-3">
+                                        <FormLabel>Typical Activity Level</FormLabel>
+                                        <FormControl>
+                                            <RadioGroup
+                                                onValueChange={field.onChange}
+                                                defaultValue={field.value}
+                                                className="flex flex-col space-y-1"
+                                            >
+                                                <FormItem className="flex items-center space-x-3 space-y-0">
+                                                    <FormControl><RadioGroupItem value="sedentary" /></FormControl>
+                                                    <FormLabel className="font-normal">Sedentary (little to no exercise)</FormLabel>
+                                                </FormItem>
+                                                <FormItem className="flex items-center space-x-3 space-y-0">
+                                                    <FormControl><RadioGroupItem value="light" /></FormControl>
+                                                    <FormLabel className="font-normal">Lightly Active (light exercise/sports 1-3 days/week)</FormLabel>
+                                                </FormItem>
+                                                 <FormItem className="flex items-center space-x-3 space-y-0">
+                                                    <FormControl><RadioGroupItem value="moderate" /></FormControl>
+                                                    <FormLabel className="font-normal">Moderately Active (moderate exercise/sports 3-5 days/week)</FormLabel>
+                                                </FormItem>
+                                                <FormItem className="flex items-center space-x-3 space-y-0">
+                                                    <FormControl><RadioGroupItem value="active" /></FormControl>
+                                                    <FormLabel className="font-normal">Very Active (hard exercise/sports 6-7 days a week)</FormLabel>
+                                                </FormItem>
+                                                 <FormItem className="flex items-center space-x-3 space-y-0">
+                                                    <FormControl><RadioGroupItem value="very_active" /></FormControl>
+                                                    <FormLabel className="font-normal">Extra Active (very hard exercise/sports & physical job)</FormLabel>
+                                                </FormItem>
+                                            </RadioGroup>
+                                        </FormControl>
+                                        <FormDescription>Helps estimate your daily calorie needs (TDEE).</FormDescription>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                        )}
 
-      {/* Step 3: Preferences/Flags */} 
-      {step === 3 && (
-        <div className="space-y-4">
-          <div className="flex items-start">
-            <div className="flex items-center h-5">
-              <input id="lactoseSensitive" {...register('lactoseSensitive')} type="checkbox" className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded" />
-            </div>
-            <div className="ml-3 text-sm">
-              <label htmlFor="lactoseSensitive" className="font-medium text-gray-700">Are you lactose sensitive?</label>
-              <p className="text-gray-500">We'll remind you when logging meals.</p>
-            </div>
-          </div>
-           <div className="flex items-start">
-            <div className="flex items-center h-5">
-              <input id="backIssues" {...register('backIssues')} type="checkbox" className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded" />
-            </div>
-            <div className="ml-3 text-sm">
-              <label htmlFor="backIssues" className="font-medium text-gray-700">Do you have any back issues/pain?</label>
-              <p className="text-gray-500">We can adjust workout suggestions if needed.</p>
-            </div>
-          </div>
-          {/* TODO: Add equipment selection if desired */}
-        </div>
-      )}
+                         {currentStep === 4 && (
+                            <div className="space-y-4">
+                                <FormField
+                                    control={form.control}
+                                    name="targetBodyFatPct"
+                                    render={({ field }: FormFieldRenderProps) => (
+                                        <FormItem>
+                                            <FormLabel>Target Body Fat (%) (Optional)</FormLabel>
+                                            <FormControl><Input type="number" step="0.1" placeholder="e.g., 11" {...field} /></FormControl>
+                                             <FormDescription>Your desired body fat percentage goal.</FormDescription>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                 <FormField
+                                    control={form.control}
+                                    name="targetDate"
+                                    render={({ field }: FormFieldRenderProps) => (
+                                        <FormItem>
+                                            <FormLabel>Target Date (Optional)</FormLabel>
+                                            <FormControl><Input type="date" placeholder="YYYY-MM-DD" {...field} /></FormControl>
+                                             <FormDescription>When do you aim to reach this goal?</FormDescription>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
+                        )}
 
-      {/* Navigation Buttons */} 
-      <div className="flex justify-between pt-4">
-        {step > 1 && (
-          <button type="button" onClick={prevStep} className="inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-            Back
-          </button>
-        )}
-        {/* Hide Back button on step 1 to avoid empty space */} 
-        {step === 1 && <div />} 
-
-        {step < 3 && (
-          <button type="button" onClick={nextStep} className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-            Next
-          </button>
-        )}
-
-        {step === 3 && (
-          <button type="submit" disabled={!isValid} className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50">
-            Finish Onboarding
-          </button>
-        )}
-      </div>
-    </form>
-  );
+                         {currentStep === 5 && (
+                            <div className="space-y-4">
+                                <FormField
+                                    control={form.control}
+                                    name="lactoseSensitive"
+                                    render={({ field }: FormFieldRenderProps) => (
+                                        <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                                            <FormControl>
+                                                <Checkbox
+                                                    checked={field.value}
+                                                    onCheckedChange={field.onChange}
+                                                />
+                                            </FormControl>
+                                            <div className="space-y-1 leading-none">
+                                                <FormLabel>Lactose Sensitive?</FormLabel>
+                                                <FormDescription>
+                                                    We'll flag recipes and remind you if needed.
+                                                 </FormDescription>
+                                            </div>
+                                        </FormItem>
+                                    )}
+                                />
+                                 <FormField
+                                    control={form.control}
+                                    name="backIssues"
+                                    render={({ field }: FormFieldRenderProps) => (
+                                        <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                                            <FormControl>
+                                                <Checkbox
+                                                    checked={field.value}
+                                                    onCheckedChange={field.onChange}
+                                                />
+                                            </FormControl>
+                                            <div className="space-y-1 leading-none">
+                                                <FormLabel>History of Back Issues?</FormLabel>
+                                                <FormDescription>
+                                                   This helps us adjust workout plans for safety.
+                                                 </FormDescription>
+                                            </div>
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
+                        )}
+                    </CardContent>
+                    <CardFooter className="flex justify-between">
+                        <Button type="button" variant="outline" onClick={prevStep} disabled={currentStep === 1}>
+                            Previous
+                        </Button>
+                        <Button type="button" onClick={nextStep} disabled={form.formState.isSubmitting}>
+                            {currentStep === TOTAL_STEPS ? (form.formState.isSubmitting ? 'Saving...' : 'Finish Setup') : 'Next'}
+                        </Button>
+                    </CardFooter>
+                </Card>
+            </form>
+        </Form>
+    );
 } 
