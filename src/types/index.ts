@@ -131,4 +131,7 @@ export interface UserProfile {
   notificationPrefs?: NotificationPreferences;
   completedOnboarding: boolean;
   fitbitUserId?: string; // Store Fitbit user ID after connection
+  // Add fields for client-side token management
+  fitbitAccessToken?: string;
+  fitbitExpiresAt?: number; // Store as seconds since epoch timestamp
 } 

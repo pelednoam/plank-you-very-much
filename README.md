@@ -34,56 +34,78 @@ This project follows the specifications outlined in [`Technical-Specification-an
 *   **Project Setup:** Next.js **App Router** structure, TypeScript, Tailwind, ESLint. _(Deviation: Spec proposed Pages Router structure)_.
 *   **Directory Structure:** Aligned with App Router conventions.
 *   **Data Types:** Core interfaces defined (`src/types/index.ts`).
-    *   **Deviation:** `Workout` uses `completedAt?: string` instead of Spec's `completed?: boolean`.
-    *   **Deviation:** `UserProfile` includes additional fields (`completedOnboarding`, `notificationPrefs`, `fitbitUserId`, `completedTutorials`) and uses lowercase enums for `activityLevel`.
-    *   **Deviation:** Added `Planner` types (`WeeklyPlan`, etc.) and `FitbitTokenData` not in original Spec models.
-*   **State Management (Zustand + IndexedDB):** Stores created and persistence configured.
+    *   **Deviation:** `Workout` uses `completedAt?: string` and `performanceRating` (renamed from `rating`).
+    *   **Deviation:** `UserProfile` includes additional fields and uses App Router specific enums/types.
+    *   **Deviation:** Added `Planner` types, `FitbitTokenData`, etc.
+*   **State Management (Zustand + IndexedDB):** Core stores (`userProfileStore`, `metricsStore`, `activityStore`, `offlineQueueStore`, `plannerStore`) created using `idbStorage` for persistence.
 *   **Routing & Layout:** Basic App Router layout and core pages implemented.
-*   **UI Components (shadcn/ui):** Core components added. **Note:** Persistent import errors encountered (see README section 2).
+*   **UI Components (shadcn/ui):** Core components added.
 *   **Onboarding Flow (`/onboard`):** Fully implemented as per Spec 4.1.
 *   **Dashboard (`/`):** Implemented as per Spec 4.6, including charts and today's workouts. **Added:** Workout items link to details modal.
-*   **Nutrition (`/nutrition`):** Meal logging and macro progress implemented (Spec 4.5). Targets now use goal parameters.
+*   **Nutrition (`/nutrition`):** Meal logging and macro progress implemented (Spec 4.5). Targets now use goal parameters (Spec 4.2 partially addressed).
 *   **Planner (`/planner`):**
     *   Monthly calendar view implemented.
-    *   **Deviation:** Basic weekly plan generation exists, but **dynamic/adaptive generation (Spec 4.3, 8.4) is missing**.
+    *   Basic weekly plan generation (`generateWeeklyPlan`) exists.
+    *   **Added:** Dynamic workout **duration adjustment** based on user fat loss goals (partially addresses Spec 4.3).
+    *   **Deviation:** Full dynamic/adaptive generation (Spec 4.3, 8.4) based on feedback/progress is **missing**.
     *   **Added:** Workout items link to details modal.
-*   **Workout Logging:** **Added `WorkoutDetailsModal`** component for logging performance (duration, notes, rating, completion), integrated into Dashboard and Planner. _(Fulfills implicit logging need, but specific modal wasn't in Spec)_. 
-*   **Goal Engine:** Fully implemented UI (Settings) and integration with calculations (Spec 4.2).
+*   **Workout Logging:** **Added `WorkoutDetailsModal`** component for logging performance (duration, notes, rating, completion), integrated into Dashboard and Planner. _(Fulfills implicit logging need)_.
+*   **Goal Engine:** Fully implemented UI (Settings) and integration with calculation functions (`calculateCalorieTarget`, `calculateProteinTarget`).
 *   **Knowledge Base (`/knowledge`):** Implemented as per Spec 4.7.
-*   **Settings (`/settings`):** Core sections implemented.
-*   **Fitbit Integration (Partial):** OAuth UI and callback logic exist.
-    *   **Deviation:** Server Actions use **placeholders simulating secure storage** instead of actual implementation (Spec 8A).
+*   **Settings (`/settings`):** Core sections implemented (Profile, Goals, Data Export). Integrations and Notifications UI exists.
+*   **Fitbit Integration (Partial):**
+    *   OAuth UI flow initiated from Settings.
+    *   Callback handler (`/api/fitbit/callback/route.ts`) implemented to exchange code for tokens.
+    *   **Improved Security:** Refresh tokens are stored in **secure, HTTP-only cookies**. Access tokens/expiry managed in client-side Zustand store (`userProfileStore`).
+    *   Server Actions (`src/lib/fitbitActions.ts`) implemented for refreshing tokens (using cookie) and fetching data (requires client-side token).
+    *   **Deviation:** Server Actions still use **placeholder `getCurrentUserId`** for app-level authentication.
+    *   **Deviation:** Actual data sync logic beyond profile fetch in Settings is **not implemented**.
+    *   **Issue:** Linter errors exist in `fitbitActions.ts` related to `cookies()`.
+    *   **Issue:** Tests for `fitbitActions` (`fetchFitbitData`) are **skipped** due to mocking difficulties with Server Actions.
 *   **Notifications (Partial):**
-    *   Frontend subscription logic in Settings implemented.
-    *   **Deviation:** Uses JavaScript service worker (`sw.js`) instead of Spec's proposed TypeScript (`serviceWorker.ts`).
-    *   **Deviation:** Backend uses **placeholder API routes**; actual push service and triggers are missing (Spec 11).
-*   **Testing:** Setup complete, minimal unit tests exist. Component and E2E tests are missing.
-*   **Toast Notifications:** Implemented.
+    *   Frontend subscription UI/logic in Settings implemented (`NotificationSettings` component).
+    *   Backend API routes for `/api/notifications/subscribe` and `/api/notifications/unsubscribe` exist.
+    *   **Deviation:** Uses **placeholder in-memory storage** (`notificationSubscriptionStorage.ts`) instead of a real database.
+    *   **Deviation:** Server action for triggering reminders (`notificationActions.ts`) exists but uses **placeholder logic** and **does not actually send pushes** (`web-push` not fully integrated).
+    *   **Deviation:** Uses JavaScript service worker (`public/sw.js`) instead of Spec's proposed TypeScript. Requires verification with PWA build.
+    *   **Issue:** API route tests (`subscribe/route.test.ts`, `unsubscribe/route.test.ts`) are **skipped** due to issues mocking `NextResponse.json()` in Jest.
+*   **Testing:**
+    *   Jest + RTL setup complete (`jest.config.ts`, `jest.setup.js`).
+    *   Unit tests implemented for:
+        *   `src/lib/calculationUtils.test.ts`
+        *   `src/store/metricsStore.test.ts`
+        *   `src/features/planner/utils/generatePlan.test.ts`
+    *   **Skipped Tests:** `fitbitActions.test.ts`, `api/notifications/subscribe/route.test.ts`, `api/notifications/unsubscribe/route.test.ts`.
+    *   **Missing:** Component tests, E2E tests (Cypress).
+*   **Toast Notifications:** Implemented using `sonner`.
+*   **Data Export:** Implemented in Settings using `exportUtils.ts`.
 
 ### Missing Features / Next Steps (Prioritized)
 
 **High Priority (Core Functionality & Spec Alignment):**
 
-*   **Fitbit Integration (Implement Secure Storage & Full Sync):** _(Address deviation from Spec 8A)_.
-    *   Implement actual Secure Token Storage (replace placeholders).
-    *   Implement actual Authentication (replace placeholder `getCurrentUserId`).
-    *   Implement Complete Data Sync (sleep, HR, etc.).
-    *   Ensure Token Revocation works with real storage.
-*   **Notifications (Implement Backend & Triggers):** _(Address deviation from Spec 11 & 16)_.
-    *   Implement Backend Push Service.
-    *   Implement Notification Triggers.
-    *   Verify Service Worker functionality with PWA build.
-*   **Planner Enhancements (Dynamic Generation):** Implement adaptive logic as per Spec 4.3 & 8.4.
-*   **Offline Sync (Decision & Implementation):** Decide if needed and implement queue/sync logic (Spec 15).
+*   **Fitbit Integration (Complete Sync & Fixes):** _(Address deviations from Spec 8A)_.
+    *   Implement **full data sync logic** within server actions (sleep, HR, daily activity summaries) and integrate results into stores (e.g., `activityStore`).
+    *   Replace placeholder `getCurrentUserId` with actual authentication.
+    *   Resolve **linter errors** in `fitbitActions.ts`.
+    *   Investigate and **fix skipped tests** in `fitbitActions.test.ts`.
+*   **Notifications (Implement Backend & Fixes):** _(Address deviations from Spec 11 & 16)_.
+    *   Implement **real database storage** for subscriptions (replace `notificationSubscriptionStorage.ts`).
+    *   Implement **actual backend push service** using `web-push` in `notificationActions.ts`.
+    *   Implement real notification triggers (e.g., scheduled job for workout reminders).
+    *   Investigate and **fix skipped tests** for API routes.
+    *   Verify service worker functionality (`sw.js`) in a PWA build.
+*   **Planner Enhancements (Full Adaptive Generation):** Implement the core adaptive logic based on user progress/feedback as per Spec 4.3 & 8.4 (beyond just duration adjustment).
+*   **Offline Sync (Decision & Implementation):** Evaluate need and implement robust offline queue/sync logic using `offlineQueueStore` (Spec 15).
 
 **Medium Priority (Completing Features & Polish):**
 
 *   **Wyze Scale Integration:** Implement Health Connect/Kit bridge or CSV import (Spec 8F).
-*   **NFC Triggers:** Connect scan action, implement QR fallback (Spec 8B, 8E).
-*   **Media Library Integration:** Implement Meal Gallery & Exercise Video components (Spec 4.10, 4.11).
-*   **Settings (Full):** Notification preference backend sync, refine data export.
-*   **Testing:** Add Component and E2E tests (Spec 13).
-*   **Styling & UX:** General polish, accessibility (Spec 12).
+*   **NFC Triggers:** Implement Web NFC scanning, connect scan action to `WorkoutDetailsModal`, implement QR fallback (Spec 8B, 8E).
+*   **Media Library Integration:** Implement Meal Gallery & Exercise Video components and integrate with data models (Spec 4.10, 4.11).
+*   **Settings (Full):** Implement backend sync for notification preferences, refine data export options.
+*   **Testing:** Add Component tests (React Testing Library) and E2E tests (Cypress) (Spec 13).
+*   **Styling & UX:** General polish, ensure accessibility (Spec 12).
 *   **CI/CD:** Finalize workflow (Spec 14).
 
 **Low Priority (v2.0 / Future):**

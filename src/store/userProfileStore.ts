@@ -19,12 +19,15 @@ interface PersistedUserProfileState {
 interface UserProfileState {
   profile: UserProfile | null; // Only profile needs to be top-level state
   setProfile: (profileData: UserProfile) => void;
-  completeOnboarding: (profileData: Omit<UserProfile, 'completedOnboarding' | 'id' | 'completedTutorials' | 'notificationPrefs'>) => void;
-  updateSettings: (settingsData: Partial<Omit<UserProfile, 'notificationPrefs' | 'completedTutorials'>>) => void; // Exclude prefs & tutorials
+  completeOnboarding: (profileData: Omit<UserProfile, 'completedOnboarding' | 'id' | 'completedTutorials' | 'notificationPrefs' | 'fitbitUserId' | 'fitbitAccessToken' | 'fitbitExpiresAt'>) => void;
+  updateSettings: (settingsData: Partial<Omit<UserProfile, 'notificationPrefs' | 'completedTutorials' | 'fitbitAccessToken' | 'fitbitExpiresAt'>>) => void; // Exclude managed fields
   updateNotificationPref: (prefKey: keyof NotificationPreferences, value: boolean) => void;
   clearProfile: () => void;
   markTutorialComplete: (tutorialId: string) => void;
   hasCompletedTutorial: (tutorialId: string) => boolean;
+  // Add Fitbit specific actions
+  setFitbitConnection: (userId: string, accessToken: string, expiresAt: number) => void;
+  clearFitbitConnection: () => void;
 }
 
 // Export the default profile object
@@ -49,6 +52,8 @@ export const defaultProfile: UserProfile = {
   // backIssues: undefined,
   // equipment: undefined,
   // fitbitUserId: undefined,
+  fitbitAccessToken: undefined,
+  fitbitExpiresAt: undefined,
 };
 
 // Initial state for the store slice
@@ -70,15 +75,27 @@ export const useUserProfileStore = create<UserProfileState>()(
             id: state.profile?.id, // Preserve ID
             completedTutorials: state.profile?.completedTutorials || [], // Preserve tutorials
             notificationPrefs: state.profile?.notificationPrefs || defaultProfile.notificationPrefs, // Preserve prefs
+            // Ensure fitbit fields are preserved or use default
+            fitbitUserId: state.profile?.fitbitUserId,
+            fitbitAccessToken: state.profile?.fitbitAccessToken,
+            fitbitExpiresAt: state.profile?.fitbitExpiresAt,
             completedOnboarding: true 
         }
       })),
 
-      // Update general settings, excluding notificationPrefs & completedTutorials
+      // Update general settings, excluding managed fields
       updateSettings: (settingsData) => set((state) => {
         if (!state.profile) return {}; 
         return {
-          profile: { ...state.profile, ...settingsData }
+          profile: { 
+              ...state.profile, 
+              ...settingsData, 
+              // Ensure managed fields aren't overwritten if passed accidentally
+              notificationPrefs: state.profile.notificationPrefs, 
+              completedTutorials: state.profile.completedTutorials,
+              fitbitAccessToken: state.profile.fitbitAccessToken,
+              fitbitExpiresAt: state.profile.fitbitExpiresAt,
+          }
         };
       }),
       
@@ -116,6 +133,41 @@ export const useUserProfileStore = create<UserProfileState>()(
           return get().profile?.completedTutorials?.includes(tutorialId) ?? false;
       },
 
+      // Fitbit Actions
+      setFitbitConnection: (userId, accessToken, expiresAt) => set((state) => {
+          if (!state.profile) {
+               console.warn("UserProfileStore: Cannot set Fitbit connection, profile is null. Initializing with default.");
+               return { 
+                    profile: { 
+                       ...defaultProfile, 
+                       fitbitUserId: userId,
+                       fitbitAccessToken: accessToken,
+                       fitbitExpiresAt: expiresAt 
+                    }
+                };
+          }
+          return {
+              profile: {
+                  ...state.profile,
+                  fitbitUserId: userId,
+                  fitbitAccessToken: accessToken,
+                  fitbitExpiresAt: expiresAt,
+              }
+          };
+      }),
+
+      clearFitbitConnection: () => set((state) => {
+          if (!state.profile) return {};
+          return {
+              profile: {
+                  ...state.profile,
+                  fitbitUserId: undefined,
+                  fitbitAccessToken: undefined,
+                  fitbitExpiresAt: undefined,
+              }
+          };
+      }),
+
     }),
     {
       name: 'user-profile-storage',
@@ -133,7 +185,12 @@ export const useUserProfileStore = create<UserProfileState>()(
                      if (error) {
                          console.error("UserProfileStore: Failed to hydrate", error);
                     } else {
-                         state?.setProfile(defaultProfile);
+                         // Ensure setProfile exists before calling
+                         if (state?.setProfile) {
+                             state.setProfile(defaultProfile);
+                         } else {
+                              console.error("UserProfileStore: setProfile action is missing during rehydration.");
+                         }
                      }
                  }
             }
@@ -146,4 +203,10 @@ export const useUserProfileStore = create<UserProfileState>()(
 export const selectIsOnboardingComplete = (state: UserProfileState) => state.profile?.completedOnboarding ?? false;
 export const selectUserProfile = (state: UserProfileState) => state.profile;
 // Add default fallback for notification preferences selector
-export const selectNotificationPreferences = (state: UserProfileState) => state.profile?.notificationPrefs ?? defaultProfile.notificationPrefs; 
+export const selectNotificationPreferences = (state: UserProfileState) => state.profile?.notificationPrefs ?? defaultProfile.notificationPrefs;
+// Add selectors for Fitbit data
+export const selectFitbitConnection = (state: UserProfileState) => ({
+    userId: state.profile?.fitbitUserId,
+    accessToken: state.profile?.fitbitAccessToken,
+    expiresAt: state.profile?.fitbitExpiresAt,
+}); 

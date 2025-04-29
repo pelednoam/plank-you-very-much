@@ -20,6 +20,25 @@ const defaultWeeklyTemplate: WorkoutType[] = ['CLIMB', 'SWIM', 'CORE', 'CLIMB', 
 // Assuming WorkoutType might be: 'CLIMB' | 'SWIM' | 'CORE' | 'STRENGTH' | 'REST' | 'MOBILITY';
 const backCareTemplate: WorkoutType[] = ['CLIMB', 'SWIM', 'MOBILITY', 'CLIMB', 'SWIM', 'CORE', 'REST']; // Replace one CORE with MOBILITY
 
+// Define base durations
+const BASE_DURATIONS: Record<WorkoutType, number> = {
+    CLIMB: 90,
+    SWIM: 45,
+    CORE: 30,
+    STRENGTH: 60,
+    MOBILITY: 20,
+    REST: 0,
+};
+
+// Function to determine if fat loss goal is active
+const isFatLossGoalActive = (profile?: UserProfile | null): boolean => {
+    return !!profile && 
+           profile.targetBodyFatPct !== undefined && profile.targetBodyFatPct >= 0 && // Allow 0% target
+           profile.targetDate !== undefined && 
+           dayjs(profile.targetDate).isValid() && 
+           dayjs(profile.targetDate).isAfter(dayjs());
+};
+
 // Generate a weekly plan starting from a given Monday
 // Now accepts optional user profile data
 export const generateWeeklyPlan = (
@@ -36,21 +55,28 @@ export const generateWeeklyPlan = (
     // Shuffle the chosen template for variety
     const shuffledTypes = shuffleArray([...templateToUse]);
 
+    // Check if fat loss goal is active
+    const fatLossActive = isFatLossGoalActive(userProfile);
+
     // Create workout objects for each day
     for (let i = 0; i < 7; i++) {
         const currentDate = start.add(i, 'day').format('YYYY-MM-DD');
         const workoutType = shuffledTypes[i];
 
-        // Assign basic properties - duration can be refined later based on type/goals
-        let durationMin = 0;
-        switch(workoutType) {
-            case 'CLIMB': durationMin = 90; break;
-            case 'SWIM': durationMin = 45; break;
-            case 'CORE': durationMin = 30; break;
-            case 'STRENGTH': durationMin = 60; break;
-            case 'MOBILITY': durationMin = 20; break; // Added duration for mobility
-            case 'REST': durationMin = 0; break;
-            default: durationMin = 30; // Default duration
+        // Assign duration: Base duration + adjustment for fat loss goal
+        let durationMin = BASE_DURATIONS[workoutType];
+        
+        if (fatLossActive) {
+            // Increase duration for calorie-burning activities
+            if (workoutType === 'CLIMB') {
+                durationMin += 15; // e.g., 90 -> 105
+            } else if (workoutType === 'SWIM') {
+                durationMin += 15; // e.g., 45 -> 60
+            }
+             // Optionally adjust CORE/STRENGTH slightly too, or leave as is
+             // else if (workoutType === 'CORE') {
+             //    durationMin += 5;
+             // }
         }
 
         const workout: Workout = {

@@ -77,8 +77,10 @@ describe('generateWeeklyPlan', () => {
         const userProfile: UserProfile = {
             name: 'Test User',
             lactoseSensitive: false,
-            backIssues: true, // Key difference
+            backIssues: true,
             completedOnboarding: true,
+            targetBodyFatPct: undefined,
+            targetDate: undefined,
         };
         const plan = generateWeeklyPlan(startDate, userProfile);
         const workoutTypes = plan.workouts.map(w => w.type);
@@ -90,18 +92,89 @@ describe('generateWeeklyPlan', () => {
         expect(workoutTypes.filter(t => t === 'REST').length).toBe(1);
     });
 
-    it('should assign correct default durations based on workout type', () => {
-        const plan = generateWeeklyPlan(startDate);
+    it('should assign correct BASE durations when no fat loss goal is active', () => {
+        const userProfile: UserProfile = {
+            name: 'Test User',
+            lactoseSensitive: false,
+            backIssues: false,
+            completedOnboarding: true,
+            targetBodyFatPct: undefined,
+            targetDate: undefined,
+        };
+        const plan = generateWeeklyPlan(startDate, userProfile);
         plan.workouts.forEach(workout => {
             switch (workout.type) {
                 case 'CLIMB': expect(workout.durationMin).toBe(90); break;
                 case 'SWIM': expect(workout.durationMin).toBe(45); break;
                 case 'CORE': expect(workout.durationMin).toBe(30); break;
-                case 'STRENGTH': expect(workout.durationMin).toBe(60); break; // Assuming STRENGTH might appear if template changes
+                case 'STRENGTH': expect(workout.durationMin).toBe(60); break;
                 case 'MOBILITY': expect(workout.durationMin).toBe(20); break;
                 case 'REST': expect(workout.durationMin).toBe(0); break;
                 default: fail(`Unexpected workout type: ${workout.type}`);
             }
+        });
+    });
+
+    it('should assign INCREASED durations for CLIMB/SWIM when fat loss goal IS active', () => {
+        const userProfileWithGoal: UserProfile = {
+            name: 'Test User',
+            lactoseSensitive: false,
+            backIssues: false,
+            completedOnboarding: true,
+            targetBodyFatPct: 10,
+            targetDate: dayjs().add(3, 'month').format('YYYY-MM-DD'),
+        };
+        const plan = generateWeeklyPlan(startDate, userProfileWithGoal);
+        plan.workouts.forEach(workout => {
+            switch (workout.type) {
+                case 'CLIMB': expect(workout.durationMin).toBe(105); break;
+                case 'SWIM': expect(workout.durationMin).toBe(60); break;
+                case 'CORE': expect(workout.durationMin).toBe(30); break;
+                case 'STRENGTH': expect(workout.durationMin).toBe(60); break;
+                case 'MOBILITY': expect(workout.durationMin).toBe(20); break;
+                case 'REST': expect(workout.durationMin).toBe(0); break;
+                default: fail(`Unexpected workout type: ${workout.type}`);
+            }
+        });
+    });
+
+    it('should use BASE durations if fat loss goal date is in the past', () => {
+        const userProfilePastGoal: UserProfile = {
+            name: 'Test User',
+            lactoseSensitive: false,
+            backIssues: false,
+            completedOnboarding: true,
+            targetBodyFatPct: 10,
+            targetDate: dayjs().subtract(1, 'month').format('YYYY-MM-DD'),
+        };
+        const plan = generateWeeklyPlan(startDate, userProfilePastGoal);
+        plan.workouts.forEach(workout => {
+            switch (workout.type) {
+                case 'CLIMB': expect(workout.durationMin).toBe(90); break;
+                case 'SWIM': expect(workout.durationMin).toBe(45); break;
+                case 'CORE': expect(workout.durationMin).toBe(30); break;
+                case 'STRENGTH': expect(workout.durationMin).toBe(60); break;
+                case 'MOBILITY': expect(workout.durationMin).toBe(20); break;
+                case 'REST': expect(workout.durationMin).toBe(0); break;
+                default: fail(`Unexpected workout type: ${workout.type}`);
+            }
+        });
+    });
+
+    it('should use BASE durations if only targetBodyFatPct is set (no date)', () => {
+        const userProfileOnlyPct: UserProfile = {
+            name: 'Test User',
+            lactoseSensitive: false,
+            backIssues: false,
+            completedOnboarding: true,
+            targetBodyFatPct: 10,
+            targetDate: undefined,
+        };
+        const plan = generateWeeklyPlan(startDate, userProfileOnlyPct);
+        plan.workouts.forEach(workout => {
+            expect(workout.durationMin).toBe({
+                'CLIMB': 90, 'SWIM': 45, 'CORE': 30, 'STRENGTH': 60, 'MOBILITY': 20, 'REST': 0
+            }[workout.type]);
         });
     });
 

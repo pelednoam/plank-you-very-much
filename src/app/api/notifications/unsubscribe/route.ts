@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { dbDeleteSubscription } from '@/lib/notificationSubscriptionStorage'; // Import placeholder storage
 
 // TODO: Replace placeholder logic with actual database interaction
 // TODO: Implement proper validation for endpoint and userId
@@ -29,31 +30,36 @@ async function removeSubscriptionFromDb(userId: string, endpoint: string) {
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { endpoint, userId } = body;
+        const endpoint = body.endpoint; // Client identifies subscription by endpoint
+        const userId = body.userId; // Optional: Could be used for verification
 
-        // **IMPORTANT: Add User Validation Here**
-        // Verify the userId corresponds to an authenticated user session.
-        if (!userId || userId === 'PLACEHOLDER_USER_ID_FOR_NOTIFICATIONS') {
-             console.warn('[API UNSUBSCRIBE] Attempted unsubscription with invalid/placeholder userId:', userId);
-            return NextResponse.json({ error: 'User validation failed' }, { status: 401 });
+        // --- Validation ---
+        if (!endpoint || typeof endpoint !== 'string') {
+             console.warn('[API Unsubscribe] Invalid or missing endpoint:', endpoint);
+            return NextResponse.json({ error: 'Missing or invalid subscription endpoint' }, { status: 400 });
         }
-
-        if (!endpoint) {
-             console.warn('[API UNSUBSCRIBE] Invalid request: Missing endpoint.');
-            return NextResponse.json({ error: 'Missing subscription endpoint' }, { status: 400 });
+         if (!userId || typeof userId !== 'string') {
+            // While not strictly needed for deletion by endpoint, it's good practice to ensure the request
+            // comes from an authenticated user who likely owned the subscription.
+            console.warn('[API Unsubscribe] Invalid or missing userId:', userId);
+            // You might choose to allow unsubscription without userId validation if necessary.
+             return NextResponse.json({ error: 'Missing or invalid user ID' }, { status: 400 });
         }
+        // --- End Validation ---
 
-        // Remove the subscription (replace placeholder function)
-        const success = await removeSubscriptionFromDb(userId, endpoint);
+        // Replace with actual user verification if needed
+        console.log(`[API Unsubscribe] Received request to unsubscribe endpoint: ${endpoint} (User: ${userId})`);
 
-        if (success) {
-             return NextResponse.json({ message: 'Subscription removed' }, { status: 200 });
-        } else {
-             return NextResponse.json({ error: 'Failed to remove subscription' }, { status: 500 });
-        }
+        // Use the placeholder storage function to delete by endpoint
+        await dbDeleteSubscription(endpoint);
+
+        return NextResponse.json({ message: 'Subscription deleted successfully' }, { status: 200 }); // 200 OK or 204 No Content
 
     } catch (error) {
-        console.error('[API UNSUBSCRIBE] Error processing request:', error);
+        console.error('[API Unsubscribe] Error processing unsubscription:', error);
+         if (error instanceof SyntaxError) {
+             return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+         }
         return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
 } 

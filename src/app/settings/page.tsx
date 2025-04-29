@@ -6,12 +6,12 @@ import UserProfileForm from '@/features/settings/components/UserProfileForm';
 import FitbitConnectButton from '@/features/settings/components/FitbitConnectButton';
 import { Button } from '@/components/ui/button'; // Corrected casing
 import { exportWorkoutData, exportNutritionData, exportMetricsData } from '@/lib/exportUtils'; // Import export functions
-import { useUserProfileStore, selectNotificationPreferences, defaultProfile } from '@/store/userProfileStore'; // Import store, specific selector, AND defaultProfile
+import { useUserProfileStore, selectNotificationPreferences, defaultProfile, selectFitbitConnection } from '@/store/userProfileStore'; // Import store, specific selector, AND defaultProfile
 import { useMetricsStore } from '@/store/metricsStore'; // Import metrics store
 import { useActivityStore } from '@/store/activityStore'; // Import the new activity store
 import { TutorialModal } from '@/features/tutorials/components/TutorialModal'; // Import TutorialModal
 import { nfcToolsTutorial } from '@/features/tutorials/data/nfc-tools'; // Import tutorial data
-import { fetchFitbitData } from '@/lib/fitbitActions'; // Import server action
+import { fetchFitbitData, revokeFitbitToken } from '@/lib/fitbitActions'; // Import server action
 import { toast } from 'sonner'; // Import toast
 import type { FitbitDaily } from '@/types'; // Import the type for casting
 import { Input } from '@/components/ui/input'; // Assuming Input can be used for checkbox
@@ -337,10 +337,20 @@ const DataExportSettings = () => {
 
 const IntegrationSettings = () => {
     const [isTutorialOpen, setIsTutorialOpen] = useState(false);
-    const { markTutorialComplete, fitbitUserId, updateSettings } = useUserProfileStore((state) => ({
+    const { 
+        markTutorialComplete, 
+        fitbitUserId, 
+        setFitbitConnectionAction,
+        clearFitbitConnectionAction,
+        fitbitAccessToken, 
+        fitbitExpiresAt
+    } = useUserProfileStore((state) => ({
         markTutorialComplete: state.markTutorialComplete,
         fitbitUserId: state.profile?.fitbitUserId,
-        updateSettings: state.updateSettings,
+        setFitbitConnectionAction: state.setFitbitConnection,
+        clearFitbitConnectionAction: state.clearFitbitConnection,
+        fitbitAccessToken: state.profile?.fitbitAccessToken,
+        fitbitExpiresAt: state.profile?.fitbitExpiresAt,
     }));
     const addMetric = useMetricsStore((state) => state.addMetric);
     const addOrUpdateActivity = useActivityStore((state) => state.addOrUpdateActivity); // Get action from activity store
@@ -356,6 +366,11 @@ const IntegrationSettings = () => {
     };
 
     const handleSyncFitbit = async () => {
+        if (!fitbitAccessToken || !fitbitExpiresAt) {
+            toast.error("Fitbit disconnected", { description: "Cannot sync data. Please connect Fitbit first." });
+            return;
+        }
+
         setIsSyncing(true);
         setSyncError(null);
         setFitbitProfileData(null);
@@ -365,10 +380,37 @@ const IntegrationSettings = () => {
         let profileData: any = null;
         let syncSuccess = true;
         let syncMessages: string[] = [];
+        let latestAccessToken = fitbitAccessToken;
+        let latestExpiresAt = fitbitExpiresAt;
+
+        // Helper function to make API calls and handle token refresh
+        const fetchWithRefresh = async (endpoint: string): Promise<{ success: boolean; data?: any; error?: string }> => {
+            const result = await fetchFitbitData({ 
+                endpoint, 
+                currentAccessToken: latestAccessToken, 
+                currentExpiresAt: latestExpiresAt 
+            });
+
+            if (result.newAccessToken && result.newExpiresAt) {
+                console.log("[Fitbit Sync] Token refreshed during sync. Updating store.");
+                setFitbitConnectionAction(fitbitUserId!, result.newAccessToken, result.newExpiresAt); // Assuming userId exists if tokens do
+                latestAccessToken = result.newAccessToken;
+                latestExpiresAt = result.newExpiresAt;
+            }
+            
+            if (!result.success && (result.error === 'no_refresh_token_found' || result.error === 'invalid_grant' || result.error === 'unauthorized_token_likely_invalid')) {
+                 console.warn("[Fitbit Sync] Connection lost during sync (token invalid/missing). Clearing connection.");
+                 clearFitbitConnectionAction(); // Clear client-side state
+                 toast.warning("Fitbit connection lost. Please reconnect.");
+                 throw new Error("Fitbit connection lost during sync."); // Stop sync process
+            }
+
+            return result;
+        };
 
         try {
             // Step 1: Fetch profile info
-            const profileResult = await fetchFitbitData('/1/user/-/profile.json');
+            const profileResult = await fetchWithRefresh('/1/user/-/profile.json');
             if (profileResult.success) {
                 profileData = profileResult.data.user;
                 setFitbitProfileData(profileData);
@@ -380,263 +422,265 @@ const IntegrationSettings = () => {
                 setSyncError(errorMsg);
                 syncMessages.push(`Profile fetch failed: ${errorMsg}`);
                 console.error("Fitbit sync failed (Profile fetch):", errorMsg);
-                if (errorMsg.includes('no_refresh_token') || errorMsg.includes('invalid_grant')) {
-                    updateSettings({ fitbitUserId: undefined });
-                    toast.warning("Fitbit connection lost. Please reconnect.");
-                }
-                // Stop sync if profile fails (as other calls likely will too)
-                 throw new Error("Profile fetch failed, stopping sync.");
+                // Stop sync if profile fails
+                throw new Error("Profile fetch failed, stopping sync.");
             }
 
             // Step 2: Fetch today's activity summary
             const today = dayjs().format('YYYY-MM-DD');
             console.log(`Fetching Fitbit activity for date: ${today}...`);
-            const activityResult = await fetchFitbitData(`/1/user/-/activities/date/${today}.json`);
-
-            let activityData: Partial<FitbitDaily> = { date: today }; // Start with date
-
-            if (activityResult.success && activityResult.data.summary) {
-                const summary = activityResult.data.summary;
-                activityData.steps = summary.steps || 0;
-                activityData.caloriesOut = summary.caloriesOut || 0;
-                syncMessages.push(`Activity: ${activityData.steps} steps`);
-                console.log("Fitbit activity fetched:", summary);
-            } else {
-                syncSuccess = false;
-                const errorMsg = activityResult.error || 'Unknown activity fetch error';
-                syncMessages.push(`Activity fetch failed: ${errorMsg}`);
-                console.error("Fitbit sync failed (Activity fetch):", errorMsg);
-            }
+            const activityResult = await fetchWithRefresh(`/1/user/-/activities/date/${today}.json`);
             
+            let activityData: Partial<FitbitDaily> = { date: today }; 
+            if (activityResult.success && activityResult.data.summary) {
+                 const summary = activityResult.data.summary;
+                 activityData.steps = summary.steps || 0;
+                 activityData.caloriesOut = summary.caloriesOut || 0;
+                 syncMessages.push(`Activity: ${activityData.steps} steps`);
+                 console.log("Fitbit activity fetched:", summary);
+             } else {
+                 syncSuccess = false;
+                 const errorMsg = activityResult.error || 'Unknown activity fetch error';
+                 syncMessages.push(`Activity fetch failed: ${errorMsg}`);
+                 console.error("Fitbit sync failed (Activity fetch):", errorMsg);
+             }
+
             // Step 3: Fetch today's sleep summary
             console.log(`Fetching Fitbit sleep for date: ${today}...`);
-            const sleepResult = await fetchFitbitData(`/1.2/user/-/sleep/date/${today}.json`);
-
+            const sleepResult = await fetchWithRefresh(`/1.2/user/-/sleep/date/${today}.json`);
+            
             if (sleepResult.success && sleepResult.data.summary?.totalMinutesAsleep) {
-                activityData.sleepMinutes = sleepResult.data.summary.totalMinutesAsleep;
-                 syncMessages.push(`Sleep: ${activityData.sleepMinutes} min`);
-                console.log("Fitbit sleep fetched:", sleepResult.data.summary);
-            } else {
-                 syncSuccess = false;
-                 // Check if it's just no sleep data vs an error
-                 const errorMsg = sleepResult.error ? (sleepResult.error || 'Unknown sleep fetch error') : (sleepResult.data?.sleep?.length === 0 ? 'No sleep data' : 'Unknown sleep issue');
-                 syncMessages.push(`Sleep fetch failed: ${errorMsg}`);
-                 console.error("Fitbit sync failed (Sleep fetch):", errorMsg);
-            }
+                 activityData.sleepMinutes = sleepResult.data.summary.totalMinutesAsleep;
+                  syncMessages.push(`Sleep: ${activityData.sleepMinutes} min`);
+                 console.log("Fitbit sleep fetched:", sleepResult.data.summary);
+             } else {
+                  syncSuccess = false;
+                  const errorMsg = sleepResult.error ? (sleepResult.error || 'Unknown sleep fetch error') : (sleepResult.data?.sleep?.length === 0 ? 'No sleep data' : 'Unknown sleep issue');
+                  syncMessages.push(`Sleep fetch failed: ${errorMsg}`);
+                  console.error("Fitbit sync failed (Sleep fetch):", errorMsg);
+             }
 
-            // Step 4: Fetch today's heart rate summary (resting heart rate)
-            // Note: Resting HR is often part of the activity summary in newer API versions, 
-            // but this explicitly calls the heart rate endpoint for robustness or if activity didn't have it.
+            // Step 4: Fetch today's heart rate summary
             console.log(`Fetching Fitbit heart rate for date: ${today}...`);
-            const hrResult = await fetchFitbitData(`/1/user/-/activities/heart/date/${today}/1d.json`);
-
+            const hrResult = await fetchWithRefresh(`/1/user/-/activities/heart/date/${today}/1d.json`);
+            
             if (hrResult.success && hrResult.data['activities-heart']?.[0]?.value?.restingHeartRate) {
-                 activityData.restingHeartRate = hrResult.data['activities-heart'][0].value.restingHeartRate;
-                 syncMessages.push(`Resting HR: ${activityData.restingHeartRate} bpm`);
-                 console.log("Fitbit resting HR fetched:", activityData.restingHeartRate);
-            } else {
-                // Resting HR might legitimately be missing, don't necessarily mark sync as failed
-                const errorMsg = hrResult.error ? (hrResult.error || 'Unknown HR fetch error') : 'No resting HR data';
-                 syncMessages.push(`Resting HR fetch failed: ${errorMsg}`);
-                 console.warn("Fitbit sync warning (Resting HR fetch):", errorMsg);
-                 // syncSuccess = false; // Optional: uncomment if Resting HR is critical
-            }
+                  activityData.restingHeartRate = hrResult.data['activities-heart'][0].value.restingHeartRate;
+                  syncMessages.push(`Resting HR: ${activityData.restingHeartRate} bpm`);
+                  console.log("Fitbit resting HR fetched:", activityData.restingHeartRate);
+             } else {
+                 const errorMsg = hrResult.error ? (hrResult.error || 'Unknown HR fetch error') : 'No resting HR data';
+                  syncMessages.push(`Resting HR fetch failed: ${errorMsg}`);
+                  console.warn("Fitbit sync warning (Resting HR fetch):", errorMsg);
+             }
 
             // Final Step: Update the activity store with collected data
-            if (Object.keys(activityData).length > 1) { // Check if we have more than just the date
-                addOrUpdateActivity(activityData as FitbitDaily); // Cast as we expect enough data
+            if (Object.keys(activityData).length > 1) {
+                addOrUpdateActivity(activityData as FitbitDaily); 
                 console.log("Activity store updated for date:", today, activityData);
             } else {
                  console.log("No new activity/sleep/HR data to update store with.");
             }
 
-            // Display final toast based on overall success
-             toast.dismiss(toastId);
-             if (syncSuccess) {
-                 toast.success("Fitbit sync complete!", { description: syncMessages.join('; ') });
-             } else {
-                 toast.warning("Fitbit sync partially failed.", { description: syncMessages.join('; ') });
-                 // Keep the first error message if profile fetch failed, otherwise use generic
-                 if (!syncError) setSyncError('One or more data fetches failed.'); 
-             }
+            toast.dismiss(toastId);
+            if (syncSuccess) {
+                toast.success("Fitbit sync complete!", { description: syncMessages.join('; ') });
+            } else {
+                toast.warning("Fitbit sync partially failed.", { description: syncMessages.join('; ') });
+                if (!syncError) setSyncError('One or more data fetches failed.'); 
+            }
 
         } catch (error: any) {
             toast.dismiss(toastId);
-            console.error("Unexpected error during Fitbit sync:", error);
-            // Ensure syncError is set if not already
-            if (!syncError) setSyncError(error.message || 'Unexpected client error during sync');
-            toast.error("Fitbit Sync Error", { description: error.message || "An unexpected error occurred." });
+            console.error("Error during Fitbit sync process:", error);
+            if (!syncError) setSyncError(error.message || 'Unexpected error during sync');
+            // Don't double-toast if fetchWithRefresh already toasted a connection loss
+            if (error.message !== "Fitbit connection lost during sync.") {
+                 toast.error("Fitbit Sync Error", { description: error.message || "An unexpected error occurred." });
+            }
         } finally {
             setIsSyncing(false);
         }
     };
 
     const handleDisconnectFitbit = async () => {
-        // Optional: Add a confirmation dialog here
-        // if (!confirm("Are you sure you want to disconnect Fitbit?")) {
-        //     return;
-        // }
-        
         setIsDisconnecting(true);
         setSyncError(null);
-        setFitbitProfileData(null); // Clear profile data on disconnect
+        setFitbitProfileData(null);
         console.log("Attempting to disconnect Fitbit...");
-        
-        try {
-            // Call the server action to clear tokens
-            await fetchFitbitData('/oauth2/revoke');
-            
-            // Update the local store to reflect disconnection
-            updateSettings({ fitbitUserId: undefined });
-            
-            console.log("Fitbit disconnected successfully.");
-            toast.success("Fitbit Disconnected", { 
-                 description: "Your Fitbit account has been disconnected from the app." 
-            });
-             // TODO: Optionally call Fitbit's token revocation endpoint
-             // Requires making an authenticated POST request to https://api.fitbit.com/oauth2/revoke
-             // with the access or refresh token. Needs the token before clearing it.
+        let toastId = toast.loading("Disconnecting Fitbit...");
 
-        } catch (error) {
-            console.error("Fitbit disconnect failed:", error);
-            toast.error("Fitbit Disconnect Failed", { 
-                 description: "Could not disconnect Fitbit. Please try again." 
-            });
-            // Should we attempt to clear local state even if server action failed?
-            // updateSettings({ fitbitUserId: undefined }); // Maybe?
+        try {
+            // Call the server action to revoke token and clear cookie
+            const result = await revokeFitbitToken();
+            
+            // Clear the local store regardless of API success
+            clearFitbitConnectionAction();
+            
+            toast.dismiss(toastId);
+            if (result.success) {
+                console.log("Fitbit disconnected successfully.");
+                toast.success("Fitbit Disconnected", { 
+                    description: "Your Fitbit account has been disconnected." 
+                });
+            } else {
+                 console.error("Fitbit disconnection failed:", result.error);
+                 // Notify user even if local state is cleared
+                 toast.error("Fitbit Disconnect Failed", { 
+                      description: `Could not disconnect from Fitbit service. ${result.error || 'Unknown error'}. Connection removed locally.` 
+                 });
+            }
+        } catch (error: any) {
+            toast.dismiss(toastId);
+            // Clear local store even if server action fails unexpectedly
+            clearFitbitConnectionAction();
+            console.error("Unexpected error during Fitbit disconnect:", error);
+            toast.error("Disconnect Error", { description: error.message || "An unexpected error occurred." });
         } finally {
-            setIsDisconnecting(false);
+             setIsDisconnecting(false);
         }
     };
 
     return (
-        <>
-            <div className="p-4 border rounded bg-white shadow space-y-3">
-                <h3 className="font-semibold">Integrations</h3>
-                {/* Fitbit Section */}
-                <div>
-                    <h4 className="font-medium text-sm mb-1">Fitbit</h4>
-                    {!fitbitUserId ? (
-                        <>
-                            <FitbitConnectButton />
-                            <p className="text-xs text-gray-500 mt-1">Connect your Fitbit account to sync activity, sleep, and more.</p>
-                        </>
-                    ) : (
-                        <div className="space-y-2">
-                             <p className="text-sm text-green-600">Fitbit Connected (User ID: {fitbitUserId})</p>
-                             {/* Display Fetched Data */} 
-                             {fitbitProfileData && (
-                                <p className="text-sm text-gray-700">Synced Profile: {fitbitProfileData.displayName} ({fitbitProfileData.fullName})</p>
-                             )}
-                             {syncError && (
-                                <p className="text-sm text-red-600">Sync Error: {syncError}</p>
-                             )}
-                             <div className="flex space-x-2 pt-1">
-                                <Button 
-                                     variant="secondary"
-                                     size="sm"
-                                     onClick={handleSyncFitbit}
-                                     disabled={isSyncing || isDisconnecting}
-                                 >
-                                     {isSyncing ? 'Syncing...' : 'Sync Data Now'}
-                                </Button>
-                                 <Button 
-                                     variant="destructive"
-                                     size="sm"
-                                     onClick={handleDisconnectFitbit}
-                                     disabled={isSyncing || isDisconnecting}
-                                 >
-                                     {isDisconnecting ? 'Disconnecting...' : 'Disconnect Fitbit'}
-                                </Button>
-                             </div>
+        <div className="space-y-6">
+            {/* Fitbit Section */}
+            <div className="p-4 border rounded bg-white shadow">
+                <h3 className="font-semibold mb-2">Fitbit Integration</h3>
+                {fitbitUserId ? (
+                    <div>
+                        <p className="text-sm text-green-600 mb-2">Connected as Fitbit User: {fitbitUserId} {fitbitProfileData ? `(${fitbitProfileData.displayName})` : ''}</p>
+                        <div className="flex flex-wrap gap-2">
+                            <Button onClick={handleSyncFitbit} disabled={isSyncing || isDisconnecting} size="sm">
+                                {isSyncing ? 'Syncing...' : 'Sync Data (Today)'}
+                            </Button>
+                            <Button variant="destructive" onClick={handleDisconnectFitbit} disabled={isSyncing || isDisconnecting} size="sm">
+                                {isDisconnecting ? 'Disconnecting...' : 'Disconnect Fitbit'}
+                            </Button>
                         </div>
-                    )}
-                </div>
-                {/* Wyze Scale / CSV Import Section */}
-                 <div className="pt-3 mt-3 border-t">
-                    <h4 className="font-medium text-sm mb-1">Wyze Scale Data (via CSV)</h4>
-                     <p className="text-gray-600 text-sm mb-2">Import your weight history exported from the Wyze app (or other sources matching the format). Required columns: 'date', 'weight'. Optional: 'bodyFatPct', 'muscleMassKg'.</p>
-                    <CsvImportButton source="WYZE" />
-                 </div>
+                         {syncError && <p className="text-sm text-red-500 mt-2">Sync Error: {syncError}</p>}
+                    </div>
+                ) : (
+                    <div>
+                        <p className="text-sm text-gray-600 mb-3">Connect your Fitbit account to automatically sync daily activity, sleep, and potentially weight data (if available).</p>
+                        {/* This button likely handles the redirect to Fitbit Auth URL */} 
+                        <FitbitConnectButton /> 
+                    </div>
+                )}
+            </div>
 
-                {/* NFC Section */}
-                 <div className="pt-3 mt-3 border-t">
-                    <h4 className="font-medium text-sm mb-1">NFC Tag Setup</h4>
-                    <p className="text-gray-600 text-sm mb-2">Use NFC tags for quick workout logging (requires Android & Chrome).</p>
-                    <Button variant="link" size="sm" onClick={() => setIsTutorialOpen(true)} className="p-0 h-auto text-sm">
-                        Learn how to write NFC tags...
-                    </Button>
+            {/* Wyze Scale Section (Placeholder) */}
+            <div className="p-4 border rounded bg-white shadow opacity-50">
+                <h3 className="font-semibold mb-2">Wyze Scale Integration</h3>
+                <p className="text-sm text-gray-600 mb-3">Connect via Google Health Connect (Android) or Apple HealthKit (iOS), or import data.</p>
+                <div className="flex flex-wrap gap-2">
+                    <Button disabled size="sm">Connect (Health Connect/Kit)</Button>
+                    {/* Reuse CsvImportButton for Wyze - need Wyze-specific parser */} 
+                    {/* <CsvImportButton onImport={handleWyzeImport} buttonText="Import Wyze CSV" /> */}
+                    <Button disabled size="sm" variant="outline">Import Wyze CSV</Button>
                 </div>
             </div>
-            {/* Tutorial Modal */}
-            <TutorialModal
-                isOpen={isTutorialOpen}
-                onClose={() => setIsTutorialOpen(false)}
-                tutorial={nfcToolsTutorial} // Pass the imported tutorial data
+
+            {/* NFC Section */}
+            <div className="p-4 border rounded bg-white shadow">
+                <h3 className="font-semibold mb-2">NFC Activity Triggers</h3>
+                <p className="text-sm text-gray-600 mb-3">Set up NFC stickers to quickly start and log workouts by tapping your phone.</p>
+                <Button size="sm" onClick={() => setIsTutorialOpen(true)}>Setup Guide (NFC Tools)</Button>
+            </div>
+
+            {/* Tutorial Modal */} 
+            <TutorialModal 
+                isOpen={isTutorialOpen} 
+                onClose={() => setIsTutorialOpen(false)} 
+                tutorial={nfcToolsTutorial} 
                 onComplete={handleTutorialComplete}
             />
-        </>
+        </div>
     );
 };
 
-// Wrap the main content in a component to use Suspense
+// Wrap the core content to use hooks like useSearchParams
 function SettingsPageContent() {
-    const searchParams = useSearchParams(); // Get search params
-    const { updateSettings } = useUserProfileStore(
-        (state) => ({ updateSettings: state.updateSettings })
-    );
-    const router = useRouter(); // Import and use useRouter for clearing params
+    const router = useRouter();
+    const searchParams = useSearchParams();
+    // Get actions needed for callback handling
+    const { setFitbitConnectionAction, clearFitbitConnectionAction } = useUserProfileStore((state) => ({
+        setFitbitConnectionAction: state.setFitbitConnection,
+        clearFitbitConnectionAction: state.clearFitbitConnection,
+    }));
 
     useEffect(() => {
-        const fitbitStatus = searchParams.get('fitbit_status');
-        const fitbitUser = searchParams.get('fitbit_user');
-        const reason = searchParams.get('reason');
-        const detail = searchParams.get('detail');
+        console.log("[Settings Page Effect] Checking search params...");
+        const connectStatus = searchParams.get('fitbit_connect');
+        const error = searchParams.get('fitbit_error');
+        const accessToken = searchParams.get('fitbit_access_token');
+        const expiresAtStr = searchParams.get('fitbit_expires_at');
+        const userId = searchParams.get('fitbit_user_id');
 
-        if (fitbitStatus === 'success' && fitbitUser) {
-            console.log('Fitbit connect success callback received, updating store with user ID:', fitbitUser);
-            updateSettings({ fitbitUserId: fitbitUser });
-            toast.success("Fitbit connected successfully!");
-            // Clean the URL params
-            router.replace('/settings', { scroll: false }); 
-        } else if (fitbitStatus === 'error') {
-            console.error(`Fitbit connect error callback received. Reason: ${reason}, Detail: ${detail}`);
-            toast.error("Fitbit Connection Failed", { 
-                description: `Reason: ${reason || 'Unknown'}${detail ? ` (${detail})` : ''}` 
-            });
-            // Clean the URL params
-            router.replace('/settings', { scroll: false });
+        let urlNeedsCleanup = false;
+
+        if (error) {
+            console.error(`[Settings Page Effect] Fitbit connection error detected: ${error}`);
+            // Map common errors to user-friendly messages
+            let description = `Connection failed (${error}). Please try again.`;
+            if (error === 'access_denied') {
+                description = "You denied the connection request on Fitbit.";
+            } else if (error === 'invalid_grant' || error === 'no_refresh_token_found') {
+                description = "Connection failed. Please try connecting again.";
+            } else if (error === 'config_error') {
+                 description = "Fitbit connection is not configured correctly by the application administrator.";
+            } else if (error === 'missing_code') {
+                 description = "Fitbit authorization code was missing. Please try again.";
+            }
+            toast.error("Fitbit Connection Failed", { description });
+            urlNeedsCleanup = true;
+        } else if (connectStatus === 'success') {
+            console.log("[Settings Page Effect] Fitbit connection success detected.");
+            if (accessToken && expiresAtStr && userId) {
+                const expiresAt = parseInt(expiresAtStr, 10);
+                if (!isNaN(expiresAt)) {
+                    console.log(`[Settings Page Effect] Storing Fitbit connection: User ${userId}, ExpiresAt ${new Date(expiresAt * 1000)}`);
+                    setFitbitConnectionAction(userId, accessToken, expiresAt);
+                    toast.success("Fitbit Connected Successfully!");
+                } else {
+                     console.error("[Settings Page Effect] Invalid expiresAt parameter received:", expiresAtStr);
+                     toast.error("Fitbit Connection Error", { description: "Received invalid token expiry data." });
+                     clearFitbitConnectionAction(); // Clear any partial state
+                }
+            } else {
+                console.error("[Settings Page Effect] Missing token data in success callback parameters.");
+                 toast.error("Fitbit Connection Error", { description: "Missing token data after successful connection." });
+                 clearFitbitConnectionAction(); // Clear any partial state
+            }
+             urlNeedsCleanup = true;
         }
-        // Only run once when params change after mount
-    }, [searchParams, updateSettings, router]);
+
+        // Clean up URL query parameters if we processed them
+        if (urlNeedsCleanup) {
+            console.log("[Settings Page Effect] Cleaning up URL parameters...");
+            // Use router.replace to remove query params without adding to history
+            router.replace('/settings', { scroll: false }); 
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchParams]); // Re-run only when searchParams change
 
     return (
-        <div className="container mx-auto p-4 space-y-6">
-            <h1 className="text-2xl font-semibold">Settings</h1>
-
-            {/* User Profile Section */}
+        <div className="container mx-auto p-4 space-y-8">
+            <h1 className="text-2xl font-bold">Settings</h1>
             <UserProfileForm />
-
-            {/* Goal Settings Section */}
             <GoalSettingsForm />
-
-            {/* Integrations Section */}
             <IntegrationSettings />
-
-            {/* Notification Settings Section */}
             <NotificationSettings />
-            
-            {/* Data Export Section */}
             <DataExportSettings />
-
+            {/* Add other settings sections here */}
         </div>
     );
 }
 
 export default function SettingsPage() {
-    return (
-        <Suspense fallback={<div>Loading Settings...</div>}>
-             <SettingsPageContent />
-        </Suspense>
-    );
+  // Wrap content in Suspense because useSearchParams() needs it
+  return (
+    <Suspense fallback={<div>Loading Settings...</div>}>
+        <SettingsPageContent />
+    </Suspense>
+  );
 } 

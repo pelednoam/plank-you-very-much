@@ -1,4 +1,7 @@
-import { type NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+import { dbSaveSubscription } from '@/lib/notificationSubscriptionStorage'; // Import placeholder storage
+import type { PushSubscription } from 'web-push'; // Use type only
 
 // TODO: Replace placeholder logic with actual database storage (e.g., Vercel KV, Supabase, MongoDB)
 // TODO: Implement proper validation for subscription object and userId
@@ -27,6 +30,11 @@ async function saveSubscriptionToDb(userId: string, subscription: PushSubscripti
     return true; // Simulate success
 }
 
+// Basic validation for subscription object keys
+function isValidSubscription(sub: any): sub is PushSubscription {
+    return sub && typeof sub.endpoint === 'string' && sub.keys && typeof sub.keys.p256dh === 'string' && typeof sub.keys.auth === 'string';
+}
+
 /**
  * Stores a push subscription associated with a user.
  * Expects POST request with JSON body: { subscription: PushSubscription, userId: string }
@@ -34,32 +42,34 @@ async function saveSubscriptionToDb(userId: string, subscription: PushSubscripti
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { subscription, userId } = body;
+        const subscription = body.subscription;
+        const userId = body.userId; // Assuming client sends this
 
-        // **IMPORTANT: Add User Validation Here**
-        // Verify the userId corresponds to an authenticated user session.
-        // If not validated, return 401 or 403.
-        if (!userId || userId === 'PLACEHOLDER_USER_ID_FOR_NOTIFICATIONS') {
-            console.warn('[API SUBSCRIBE] Attempted subscription with invalid/placeholder userId:', userId);
-            return NextResponse.json({ error: 'User validation failed' }, { status: 401 });
+        // --- Validation ---
+        if (!userId || typeof userId !== 'string') {
+            console.warn('[API Subscribe] Invalid or missing userId:', userId);
+             return NextResponse.json({ error: 'Missing or invalid user ID' }, { status: 400 });
         }
 
-        if (!subscription || !subscription.endpoint) {
-            console.warn('[API SUBSCRIBE] Invalid subscription object received.');
+        if (!isValidSubscription(subscription)) {
+             console.warn('[API Subscribe] Invalid subscription object received:', subscription);
             return NextResponse.json({ error: 'Invalid subscription object' }, { status: 400 });
         }
+        // --- End Validation ---
 
-        // Save the subscription (replace placeholder function)
-        const success = await saveSubscriptionToDb(userId, subscription as PushSubscription);
+        // Replace with actual user verification logic if needed
+        console.log(`[API Subscribe] Received subscription for user ${userId}, endpoint: ${subscription.endpoint}`);
 
-        if (success) {
-            return NextResponse.json({ message: 'Subscription saved' }, { status: 201 });
-        } else {
-            return NextResponse.json({ error: 'Failed to save subscription' }, { status: 500 });
-        }
+        // Use the placeholder storage function
+        await dbSaveSubscription(userId, subscription);
+
+        return NextResponse.json({ message: 'Subscription saved successfully' }, { status: 201 });
 
     } catch (error) {
-        console.error('[API SUBSCRIBE] Error processing request:', error);
+        console.error('[API Subscribe] Error processing subscription:', error);
+         if (error instanceof SyntaxError) {
+             return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+         }
         return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
 } 
