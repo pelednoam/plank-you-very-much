@@ -19,12 +19,17 @@ interface NdefReadingEvent {
     };
 }
 
-export function useNfcReader() {
+interface UseNfcReaderOptions {
+  onScanSuccess?: (workoutId: string) => void;
+}
+
+export function useNfcReader(options?: UseNfcReaderOptions) {
     const router = useRouter();
     const [isScanning, setIsScanning] = useState(false);
     const [nfcSupported, setNfcSupported] = useState<boolean | null>(null);
     const [scanError, setScanError] = useState<string | null>(null);
     const [abortController, setAbortController] = useState<AbortController | null>(null);
+    const { onScanSuccess } = options || {};
 
     useEffect(() => {
         // Check for Web NFC support on mount
@@ -100,7 +105,12 @@ export function useNfcReader() {
                         if (url.startsWith('plankyou://workout/')) {
                             const workoutId = url.substring('plankyou://workout/'.length);
                             toast.success("Workout Tag Scanned!", { description: `Workout ID: ${workoutId}` });
-                            console.log(`Action: Start workout ${workoutId}`);
+                            console.log(`Calling onScanSuccess callback for workout ID: ${workoutId}`);
+                            if (onScanSuccess) {
+                                onScanSuccess(workoutId);
+                            } else {
+                                 console.warn("NFC scan successful but no onScanSuccess callback provided.");
+                            }
                         } else {
                             console.warn("NFC read: URL doesn't match expected format.", url);
                             toast.warning("Unknown NFC Tag", { description: "This tag isn't recognized by the app." });
@@ -130,7 +140,7 @@ export function useNfcReader() {
             setIsScanning(false);
             setAbortController(null);
         }
-    }, [nfcSupported, isScanning, router]);
+    }, [nfcSupported, isScanning, onScanSuccess]);
 
     const stopScan = useCallback(() => {
         if (abortController) {

@@ -9,13 +9,15 @@ import type { Workout, WorkoutType, MediaAsset } from '@/types';
 import { usePlannerStore } from '@/store/plannerStore';
 import { useMediaStore } from '@/store/mediaStore';
 import ExerciseVideo from '@/features/media/components/ExerciseVideo';
-import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Label } from '@/components/ui/Label';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Select, SelectOption } from '@/components/ui/select';
 import { v4 as uuidv4 } from 'uuid';
 import dayjs from 'dayjs';
 import { toast } from "sonner";
+import { QRCodeCanvas } from 'qrcode.react';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 
 // Define Zod schema based on Workout type
 // Split date and time for better UX with form inputs
@@ -56,6 +58,7 @@ export const WorkoutModal: React.FC<WorkoutModalProps> = ({
         findAssetsByTag: state.findAssetsByTag 
     }));
     const isEditing = !!workoutToEdit;
+    const isOnline = useOnlineStatus();
 
     const {
         control,
@@ -95,59 +98,59 @@ export const WorkoutModal: React.FC<WorkoutModalProps> = ({
         }
     }, [selectedType, findAssetsByTag]);
 
-    const onSubmit: SubmitHandler<WorkoutFormData> = (data) => {
-        const plannedAtDate = dayjs(data.plannedAtDate).startOf('day'); // Use dayjs for reliable date handling
-
-        // Base workout data without id and completedAt (handled by store/logic)
-        // Keep mediaIds in the base type definition, handle it conditionally below
+    const onSubmit: SubmitHandler<WorkoutFormData> = async (data) => {
+        const plannedAt = dayjs(`${data.plannedAtDate}T${data.plannedAtTime}`).toISOString();
+        
         const workoutBaseData: Omit<Workout, 'id' | 'completedAt'> = {
             type: data.type,
-            plannedAt: plannedAtDate.toISOString(), // Ensure ISO string format
+            plannedAt: plannedAt,
             durationMin: data.durationMin,
-            // notes: data.notes || undefined, // Removed reference to non-existent 'notes'
-            mediaIds: workoutToEdit?.mediaIds || [], // Start with existing or empty
+            mediaIds: workoutToEdit?.mediaIds || [], 
         };
 
-        // Conditionally add the selected mediaId if one was chosen
         if (data.mediaId && data.mediaId !== 'none') {
-            // Ensure mediaIds is always an array, add new ID if not already present
             workoutBaseData.mediaIds = [...new Set([...(workoutBaseData.mediaIds || []), data.mediaId])];
-        } else if (data.mediaId === 'none' && workoutToEdit) {
-            // Explicitly remove media if 'None' was selected for an existing workout
-            // This might need refinement depending on desired behavior (e.g., removing specific IDs)
-            // For now, let's assume 'none' clears all mediaIds if selected during an edit.
-            // If creating, 'none' means no mediaId is added initially.
-            if (workoutBaseData.mediaIds && workoutBaseData.mediaIds.length > 0) {
-                console.warn("Selecting 'None' during edit will clear all associated media.");
-                workoutBaseData.mediaIds = [];
-            }
+        } else if (data.mediaId === 'none' && workoutToEdit && workoutBaseData.mediaIds && workoutBaseData.mediaIds.length > 0) {
+             console.warn("Selecting 'None' during edit will clear all associated media.");
+             workoutBaseData.mediaIds = [];
         }
-        // If creating a new workout and 'none' is selected, workoutBaseData.mediaIds remains [] (or its initial state)
 
+        let success = false;
+        let queued = false;
         try {
-            if (workoutToEdit) {
-                updateWorkout(workoutToEdit.id, workoutBaseData);
-                toast.success("Workout Updated", {
-                    description: `Your ${data.type} session has been updated.`
-                });
+            if (isEditing && workoutToEdit) {
+                const result = await updateWorkout(workoutToEdit.id, workoutBaseData, isOnline);
+                if (result === true) {
+                    success = true;
+                    toast.success("Workout Updated", { description: `Your ${data.type} session has been updated.` });
+                } else if (result === false) {
+                    queued = true;
+                    toast.info("Offline: Workout update queued.");
+                }
             } else {
-                addWorkout(workoutBaseData);
-                toast.success("Workout Added", {
-                    description: `New ${data.type} session added to your plan.`
-                });
+                const result = await addWorkout(workoutBaseData, isOnline);
+                if (result !== null) {
+                    success = true;
+                    toast.success("Workout Added", { description: `New ${data.type} session added to your plan.` });
+                } else {
+                    queued = true;
+                    toast.info("Offline: Add workout action queued.");
+                }
             }
-            onClose(); // Close modal on success
+            if(success || queued) {
+                 onClose(); 
+            }
+            
         } catch (error) {
             console.error("Failed to save workout:", error);
-            toast.error("Error", {
-                description: "Failed to save workout. Please try again later.",
-            });
+            toast.error("Error", { description: "Failed to save workout. Please try again later." });
         }
     };
 
     if (!isOpen) return null;
 
     const currentMediaId = watch('mediaId');
+    const nfcUri = workoutToEdit ? `plankyou://workout/${workoutToEdit.id}` : null;
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={isEditing ? "Edit Workout" : "Add Workout"}>
@@ -187,30 +190,29 @@ export const WorkoutModal: React.FC<WorkoutModalProps> = ({
                     {errors.type && <p className="text-red-500 text-sm mt-1">{errors.type.message}</p>}
                 </div>
 
-                {/* Planned Date */}
-                 <div>
-                    <Label htmlFor="plannedAtDate">Date</Label>
-                    <Input
-                        id="plannedAtDate"
-                        type="date" // Use date input for better UX
-                        {...register('plannedAtDate')}
-                        disabled={isSubmitting}
-                    />
-                     {errors.plannedAtDate && <p className="text-red-500 text-sm mt-1">{errors.plannedAtDate.message}</p>}
-                </div>
-
-                {/* Planned Time */}
-                 <div>
-                    <Label htmlFor="plannedAtTime">Time</Label>
-                    <Input
-                        id="plannedAtTime"
-                        type="time" // Use time input
-                        {...register('plannedAtTime')}
-                        disabled={isSubmitting}
-                    />
-                     {errors.plannedAtTime && <p className="text-red-500 text-sm mt-1">{errors.plannedAtTime.message}</p>}
-                </div>
-
+                {/* Planned Date & Time (Consider splitting if not already) */}
+                 <div className="grid grid-cols-2 gap-4">
+                     <div>
+                         <Label htmlFor="plannedAtDate">Date</Label>
+                         <Input
+                            id="plannedAtDate"
+                            type="date"
+                            {...register('plannedAtDate')}
+                            disabled={isSubmitting}
+                        />
+                        {errors.plannedAtDate && <p className="text-red-500 text-sm mt-1">{errors.plannedAtDate.message}</p>}
+                    </div>
+                     <div>
+                         <Label htmlFor="plannedAtTime">Time</Label>
+                         <Input
+                            id="plannedAtTime"
+                            type="time"
+                            {...register('plannedAtTime')}
+                            disabled={isSubmitting}
+                        />
+                         {errors.plannedAtTime && <p className="text-red-500 text-sm mt-1">{errors.plannedAtTime.message}</p>}
+                    </div>
+                 </div>
 
                 {/* Duration */}
                 <div>
@@ -253,13 +255,33 @@ export const WorkoutModal: React.FC<WorkoutModalProps> = ({
                     </div>
                 )}
 
-                <div className="flex justify-end space-x-2 pt-4">
-                    <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
+                <div className="flex justify-end space-x-2 pt-2">
+                    <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
+                        Cancel
+                    </Button>
                     <Button type="submit" disabled={isSubmitting}>
-                        {isSubmitting ? 'Saving...' : (isEditing ? 'Update Workout' : 'Add Workout')}
+                        {isSubmitting ? 'Saving...' : (isEditing ? 'Save Changes' : 'Add Workout')}
                     </Button>
                 </div>
             </form>
+
+            {/* QR Code Section (Only for existing workouts) */}
+            {isEditing && nfcUri && (
+                <div className="mt-6 pt-4 border-t text-center">
+                    <h4 className="text-sm font-medium mb-2 text-gray-600">Scan QR Code (iOS Fallback)</h4>
+                    <div className="inline-block p-2 border rounded bg-white">
+                         <QRCodeCanvas 
+                             value={nfcUri} 
+                             size={128} // Adjust size as needed
+                             bgColor={"#ffffff"}
+                             fgColor={"#000000"}
+                             level={"L"} // Error correction level
+                             includeMargin={false}
+                         />
+                    </div>
+                     <p className="text-xs text-gray-500 mt-1">Use a QR scanner app to open this workout.</p>
+                 </div>
+            )}
         </Modal>
     );
 };

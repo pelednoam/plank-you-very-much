@@ -4,8 +4,10 @@ import React from 'react';
 import { useNutritionStore } from '@/store/nutritionStore';
 import type { Meal } from '@/types';
 import dayjs from 'dayjs';
-import { Button } from '@/components/ui/Button';
+import { Button } from '@/components/ui/button';
 import MealMediaDisplay from '@/features/media/components/MealMediaDisplay';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { toast } from 'sonner';
 
 interface MealListProps {
     date: string; // YYYY-MM-DD
@@ -14,10 +16,24 @@ interface MealListProps {
 const MealList: React.FC<MealListProps> = ({ date }) => {
     const meals = useNutritionStore((state) => state.getMealsForDate(date));
     const removeMeal = useNutritionStore((state) => state.removeMeal);
+    const isOnline = useOnlineStatus();
 
-    const handleDelete = (id: string) => {
+    const handleDelete = async (id: string) => {
         if (confirm('Are you sure you want to delete this meal?')) {
-            removeMeal(id);
+            try {
+                // Call removeMeal - it handles queuing internally
+                removeMeal(id, isOnline);
+
+                // Show toast based on whether it was queued or (assumed) direct
+                if (isOnline) {
+                    toast.success("Meal Deleted");
+                } else {
+                    toast.info("Offline: Meal removal queued.");
+                }
+            } catch (error) {
+                console.error("Error removing meal:", error);
+                toast.error("Failed to remove meal");
+            }
         }
     }
 

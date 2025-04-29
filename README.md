@@ -27,77 +27,116 @@ This project follows the specifications outlined in [`Technical-Specification-an
 *   **PWA:** `@serwist/next` (using a custom service worker)
 *   **Other Libraries:** `uuid`, `@dnd-kit/*`, `lucide-react`, `sonner` (for toasts)
 
-## 3. Current Status (as of [Date TBD] - Iteration Y)
+## 3. Current Status (as of 2025-04-27 - Iteration Z)
 
 ### Implemented Features
 
 *   **Project Setup:** Initialized using Next.js App Router (`create-next-app` with `--src-dir`, `--ts`, `--tailwind`, `--eslint`). Core dependencies installed.
 *   **Directory Structure:** Aligned with spec (Section 6), adapted for Next.js App Router conventions.
-*   **Data Types:** Core TypeScript interfaces defined (`src/types/index.ts`), including updated `BodyMetrics` (with `source` field) and `FitbitDaily`.
-*   **State Management:** Zustand stores created and configured with IndexedDB persistence for `UserProfile`, `Planner`, `Metrics`, `Nutrition`, `MediaAssets`, and **`Activity` (for daily summaries)**.
-*   **Routing & Layout:** Basic layout (`layout.tsx`), shared components (`<Header />`, `<Sidebar />`, `<Modal />`), pages created for all main routes using App Router.
-*   **UI Components:** Basic reusable components created (`<Button />`, `<Input />`, `<Label />`, `<Select />`, `<SelectOption />`).
-*   **Onboarding:** Multi-step form implemented, saves to store, handles completion state.
-*   **Dashboard:** Displays dynamic metrics from stores, including calculated BMR, TDEE, Calorie Target, and Protein Target.
-*   **Planner:** Interactive weekly calendar view with drag-and-drop rescheduling. Add/Edit workout modal implemented. **Enhanced weekly plan generation** logic considering back issues and workout distribution.
-*   **Core Algorithms:** BMR, TDEE, Calorie/Protein targets implemented and integrated into UI. **TDEE calculation now uses dynamic activity level** from user profile.
-*   **Nutrition:** Meal logging form, macro progress bars (vs calculated targets), and daily meal list with delete functionality.
-*   **Settings:** User profile editing form (including activity level), basic notification permission request UI, **data export functionality** (workouts, nutrition to JSON), placeholders for integrations.
+*   **Data Types:** Core TypeScript interfaces defined (`src/types/index.ts`), including `BodyMetrics`, `FitbitDaily`, `Meal`, `Workout`, etc.
+*   **State Management (Zustand + IndexedDB):**
+    *   Stores created for `UserProfile`, `Planner`, `Metrics`, `Nutrition`, `MediaAssets`, `Activity`, and `OfflineQueue`.
+    *   IndexedDB persistence configured using custom `createIdbStorage` utility (`src/lib/idbStorage.ts`) for relevant stores.
+    *   Offline action queue (`offlineQueueStore.ts`) implemented to store actions when offline.
+    *   Stores (`nutritionStore.ts`, `plannerStore.ts`) updated with `_applyQueuedUpdate` methods to process actions from the queue.
+*   **Routing & Layout:** Basic layout (`layout.tsx`), shared components (`<Header />`, `<Sidebar />`, `<Modal />`), pages created for main routes using App Router.
+*   **UI Components:** Reusable components created (`<Button />`, `<Input />`, `<Label />`, `<Select />`, etc.).
+*   **Onboarding:** Multi-step form implemented, saves to store.
+*   **Dashboard:** Displays dynamic metrics from stores (BMR, TDEE, Targets).
+*   **Planner:** Interactive weekly calendar view (`dnd-kit`), add/edit workout logic (modal removed, logic might be inline or in a separate component). **Enhanced weekly plan generation** considering back issues/distribution.
+*   **Core Algorithms:** BMR, TDEE, Calorie/Protein targets implemented. **TDEE uses dynamic activity level**.
+*   **Nutrition:**
+    *   Meal logging form (`MealLogForm.tsx`) with validation (React Hook Form + Zod).
+    *   Macro progress bars vs calculated targets.
+    *   Daily meal list (`MealList.tsx`) with delete functionality.
+    *   **Offline Support:** `addMeal` and `removeMeal` actions queue correctly when offline.
+*   **Settings:** User profile editing, basic notification UI, **data export (workouts, nutrition to JSON)**.
 *   **PWA & Service Worker:**
     *   PWA configured using `@serwist/next`.
-    *   Custom service worker implemented (`src/app/sw.js`) in JavaScript.
-    *   Includes basic event listeners for `install`, `activate`, `push`, and `notificationclick`.
-    *   `push` handler parses incoming data (JSON or text) and displays a notification using `self.registration.showNotification`.
-    *   `notificationclick` handler closes the notification and attempts to focus or open the relevant window based on `data.url`.
+    *   Custom service worker (`src/app/sw.js` - **JavaScript**) implemented.
+    *   Includes basic event listeners (`install`, `activate`, `push`, `notificationclick`).
+    *   Handles basic push notification display and click interaction.
+*   **Offline Queue Processing:**
+    *   `OfflineQueueProcessor.tsx` component created to process queued actions when online.
+    *   Integrates with `nutritionStore` and `plannerStore` via `_applyQueuedUpdate`.
+    *   Handles basic success/failure feedback using toasts (`sonner`).
 *   **Fitbit Integration (Partial - Needs Secure Storage):**
-    *   OAuth flow implemented (Connect button, callback handler).
-    *   Server Actions created for token handling (`storeFitbitTokens`, `refreshFitbitToken`, `fetchFitbitData`) **using placeholder in-memory storage and user association**.
-    *   Settings page UI allows connecting, manually syncing (profile & basic activity), and disconnecting Fitbit.
-    *   Synced activity data (steps, calories) saved to `activityStore`.
-*   **Knowledge Base:** Basic page created, displays hardcoded `KnowledgeCard` components.
+    *   OAuth flow implemented (Connect button, callback).
+    *   Server Actions for token handling (`fitbitActions.ts`) **using placeholder storage**.
+    *   Settings UI for connect, manual sync (profile & basic activity), disconnect.
+    *   Synced activity data saved to `activityStore`.
+*   **Knowledge Base:** Basic page, displays hardcoded `KnowledgeCard`s.
 *   **Media Library (Partial):**
-    *   `useMediaStore` created with placeholder asset data.
-    *   Media selection integrated into `WorkoutModal` and `MealLogForm`.
-    *   `ExerciseVideo` component created and used in `WorkoutModal`.
-    *   Basic `MealGallery` component created (displays meal images in a grid).
+    *   `useMediaStore` created.
+    *   Media selection integrated into `MealLogForm`.
+    *   `MealMediaDisplay` component used in `MealList`.
+    *   Basic `MealGallery` component (grid display).
 *   **NFC Triggers (Initial - PWA/Android):**
-    *   `useNfcReader` hook created to handle Web NFC API interactions (scan, read, errors).
-    *   Planner page includes button to initiate NFC scan (on supported browsers).
-    *   Scanned `plankyou://workout/` URIs are parsed (action dispatch TBD).
-*   **Guided Tutorials (Initial):** `TutorialModal` component created (renders markdown), NFC Tools tutorial data added, tutorial completion tracked in `userProfileStore`, trigger added to Settings page.
-*   **Testing:** Basic Jest + React Testing Library setup configured, sample unit test created.
-*   **Toast Notifications:** Implemented using `sonner` library; integrated into layout and key components (`Settings`, etc.).
+    *   `useNfcReader` hook created (scan, read, errors).
+    *   Planner page button to initiate scan.
+    *   Parses `plankyou://workout/` URIs.
+*   **Guided Tutorials (Initial):** `TutorialModal` component (renders markdown), NFC Tools data, completion tracking, trigger in Settings.
+*   **Testing:** Basic Jest + RTL setup configured.
+*   **Toast Notifications:** Implemented (`sonner`), integrated into layout, settings, offline processor, etc.
 
 ### Missing Features / Next Steps (Prioritized)
 
-*   **Notifications (Full Implementation):**
-    *   **Backend Push Service:** Implement a secure backend mechanism for storing push subscriptions (linking them to users) and sending push messages using VAPID keys. (Spec Section 11, 16).
-    *   **Specific Triggers:** Implement the logic to trigger specific notifications based on user settings and app events (e.g., workout reminders 30 min prior, inactivity cues, meeting reminders for balance board - Spec Section 11).
+**High Priority (v1.0 / v1.1 Core Functionality):**
+
+*   **Offline Sync (Finalize):**
+    *   **Server Sync Logic:** Implement actual API calls within `OfflineQueueProcessor.tsx` to sync queued actions (add/remove meals, workouts etc.) to a backend. (Spec Section 15)
+    *   **Robust Error Handling:** Improve error handling in the processor (e.g., retries, handling specific API errors, notifying user).
+    *   **Action Registration:** Implement a robust way to register store `_applyQueuedUpdate` methods with the `OfflineQueueProcessor` (currently manual imports, needs dynamic registration or dependency injection).
+    *   **Optimistic Updates:** Implement optimistic UI updates for queued actions (e.g., show added meal immediately, revert if sync fails).
 *   **Fitbit Integration (Finalize - v1.1 Target):**
-    *   **Implement Secure Token Storage:** Replace placeholder server-side storage in `fitbitActions.ts` with a secure method (e.g., database) and implement proper user association (critical for security).
-    *   **Refine Data Sync Logic:** Ensure all desired Fitbit data points (sleep, HR, etc.) are fetched and correctly mapped/stored in relevant Zustand stores (e.g., `activityStore`, `metricsStore`).
-    *   Implement Fitbit token revocation on disconnect.
-*   **Wyze Scale Integration (via Health Connect / HealthKit):**
-    *   Implement native modules/plugins (e.g., Capacitor) to access Health Connect (Android) and HealthKit (iOS) - Spec Section 8F.
-    *   Request necessary permissions.
-    *   Implement logic to read latest weight/body fat data.
-    *   Update `BodyMetrics` store with synced data (using `source: 'WYZE'`).
-    *   Consider PWA CSV import fallback.
+    *   **Secure Token Storage:** Implement secure, user-associated server-side storage for Fitbit tokens (replace placeholder). (Spec Section 8A)
+    *   **Complete Data Sync:** Fetch and store all required Fitbit data (sleep, HR). (Spec Section 7, 8A)
+    *   **Token Revocation:** Implement secure token removal.
+*   **Notifications (Full Implementation):**
+    *   **Backend Push Service:** Implement secure backend for subscriptions and sending messages (VAPID). (Spec Section 11, 16)
+    *   **Frontend Subscription:** Implement UI/logic for permissions and sending subscription to backend.
+    *   **Notification Triggers:** Implement logic for specific notifications (workout reminders, inactivity cues). (Spec Section 11)
 *   **NFC Triggers (Finalize):**
-    *   **Implement Action:** Determine and implement the action triggered by scanning a valid `plankyou://workout/` tag (e.g., open workout modal, start timer).
-    *   **Manage Tags:** Create `NfcTag` store/management UI if needed to associate specific tags.
-    *   **iOS Fallback:** Implement QR code generation/scanning as a fallback for iOS (Spec Section 8E).
+    *   **Implement Scan Action:** Define and implement the frontend action upon successful scan (e.g., open workout view/logger). (Spec Section 8B)
+    *   **iOS Fallback (QR Code):** Implement QR code generation and scanner. (Spec Section 8E)
+*   **Planner Enhancements:**
+    *   **Workout Logging:** Implement detailed workout logging (sets, reps, duration, perceived exertion) potentially replacing or enhancing the deleted `WorkoutModal`.
+    *   **Dynamic Adaptation:** Implement logic to auto-adapt plan based on feedback/flags. (Spec Section 4.3, 8.4)
+*   **Goal Engine UI:**
+    *   Implement UI for setting fat-loss targets and timelines. (Spec Section 4.2)
+*   **PWA Enhancements:**
+    *   **Install Prompt:** Implement logic to prompt PWA installation. (Spec Section 15)
+
+**Medium Priority (Core Features & Polish):**
+
+*   **Wyze Scale Integration (via Health Connect / HealthKit):**
+    *   Implement native modules/plugins or bridge for health data access. (Spec Section 8F)
+    *   Implement permissions and data reading.
+    *   Add CSV import fallback. (Spec Section 8F.3)
 *   **Media Library Integration (Finalize):**
-    *   **Load Actual Media:** Add actual exercise/meal media assets to `/public/media/`.
-    *   **Implement Loading Strategy:** Replace hardcoded assets in `mediaStore` with loading from `/public/media/` (or a manifest file).
-    *   **Enhance `MealGallery`:** Implement swipeable carousel UI.
-    *   Integrate `ExerciseVideo` more broadly (e.g., in workout lists/details).
-*   **Settings Implementation (Full):** Implement UI/logic for granular Notification Preferences (Spec Section 11).
-*   **Testing:** Write comprehensive unit, component, and E2E tests for all major features (Spec Section 13).
-*   **Styling & UX Refinements:** Apply consistent styling, improve accessibility (WCAG), add PWA icons, implement better loading/empty states.
-*   **CI/CD:** Finalize GitHub Actions workflow for automated testing and deployment (Spec Section 14).
-*   **Knowledge Base (Full):** Implement dynamic data loading, filtering/search functionality.
-*   **AI Plan Regeneration (v2.0):** Integrate with OpenAI API (or similar) for dynamic plan adjustments based on progress/feedback (Spec Section 17).
+    *   **Load Actual Media:** Add and manage actual assets. (Spec Section 6)
+    *   **Loading Strategy:** Replace hardcoded data with dynamic loading.
+    *   **Enhance `MealGallery`:** Implement swipeable carousel. (Spec Section 4.11)
+    *   **Implement `ExerciseVideo`:** Integrate video component for exercises. (Spec Section 4.10)
+*   **Knowledge Base (Full):**
+    *   Implement dynamic data loading. (Spec Section 4.7)
+    *   Add filtering/search.
+*   **Settings Implementation (Full):**
+    *   Implement granular Notification Preferences. (Spec Section 11)
+    *   Refine Data Export (ensure comprehensive). (Spec Section 4.9)
+*   **Testing:**
+    *   Write comprehensive unit, component, and E2E tests. (Spec Section 13)
+*   **Styling & UX Refinements:**
+    *   Apply consistent styling, improve accessibility (WCAG), add PWA icons, loading/empty states. (Spec Section 12)
+*   **CI/CD:**
+    *   Finalize GitHub Actions workflow. (Spec Section 14)
+
+**Low Priority (v2.0 / Future):**
+
+*   **AI Plan Regeneration (v2.0):** (Spec Section 17)
+*   **Native Wrappers (Optional):** (Spec Section 8E)
+*   **Equipment Cues:** (Spec Section 4.4)
+*   **Social Features / Other Integrations:** (Spec Section 17)
 
 ## 4. Getting Started
 

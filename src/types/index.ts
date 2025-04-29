@@ -78,11 +78,12 @@ export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'active' | 'ver
 
 // Additional types for user profile might be needed
 export interface UserProfile {
+  id?: string; // Add optional user ID
   name: string;
   dob?: string; // Date of birth for BMR calculation
   sex?: 'male' | 'female'; // Added for BMR calculation
   heightCm?: number;
-  activityLevel?: ActivityLevel; // Added for TDEE calculation
+  activityLevel?: 'SEDENTARY' | 'LIGHT' | 'MODERATE' | 'ACTIVE' | 'VERY_ACTIVE';
   // Goals
   targetBodyFatPct?: number;
   targetDate?: string;

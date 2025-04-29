@@ -1,15 +1,21 @@
 "use client";
 
 import React from 'react';
-import { Button } from '@/components/ui/Button';
+import { Button } from '@/components/ui/button';
 import { useUserProfileStore } from '@/store/userProfileStore';
+import { revokeFitbitToken } from '@/lib/fitbitActions'; // Import the server action
+import { toast } from 'sonner'; // Import toast
 
 // TODO: Move these to environment variables (.env.local)
 const NEXT_PUBLIC_FITBIT_CLIENT_ID = process.env.NEXT_PUBLIC_FITBIT_CLIENT_ID || "YOUR_FITBIT_CLIENT_ID"; // Replace with actual ID
 const NEXT_PUBLIC_FITBIT_REDIRECT_URI = process.env.NEXT_PUBLIC_FITBIT_REDIRECT_URI || "http://localhost:3000/oauth/fitbit/callback"; // Example for local dev
 
 const FitbitConnectButton: React.FC = () => {
-    const fitbitUserId = useUserProfileStore((state) => state.profile?.fitbitUserId);
+    // Get profile update action from store
+    const { profile, updateSettings } = useUserProfileStore(
+        (state) => ({ profile: state.profile, updateSettings: state.updateSettings })
+    );
+    const fitbitUserId = profile?.fitbitUserId;
     const [isLoading, setIsLoading] = React.useState(false);
 
     const handleConnect = () => {
@@ -23,19 +29,35 @@ const FitbitConnectButton: React.FC = () => {
         // No need to setIsLoading(false) as the page redirects
     };
 
-    // TODO: Implement disconnect functionality
-    const handleDisconnect = () => {
-        console.warn("Fitbit disconnect functionality not yet implemented.");
-        // This would typically involve:
-        // 1. Calling a backend endpoint to revoke the token with Fitbit API.
-        // 2. Clearing the fitbitUserId and tokens from userProfileStore.
+    const handleDisconnect = async () => {
+        setIsLoading(true);
+        toast.info("Disconnecting Fitbit...");
+        try {
+            const result = await revokeFitbitToken();
+
+            if (result.success) {
+                // Clear fitbitUserId from the user profile store
+                updateSettings({ fitbitUserId: undefined }); 
+                toast.success("Fitbit disconnected successfully.");
+            } else {
+                console.error("Fitbit disconnect failed:", result.error);
+                toast.error(`Failed to disconnect Fitbit: ${result.error || 'Unknown error'}`);
+            }
+        } catch (error) {
+            console.error("Error calling revokeFitbitToken:", error);
+            toast.error("An unexpected error occurred while disconnecting Fitbit.");
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     if (fitbitUserId) {
         return (
             <div className="flex items-center space-x-2">
                  <p className="text-sm text-green-600">Fitbit Connected (User ID: {fitbitUserId.substring(0, 6)}...)</p>
-                <Button variant="outline" size="sm" onClick={handleDisconnect}>Disconnect</Button>
+                <Button variant="outline" size="sm" onClick={handleDisconnect} disabled={isLoading}>
+                    {isLoading ? 'Disconnecting...' : 'Disconnect'}
+                </Button>
             </div>
         );
     }

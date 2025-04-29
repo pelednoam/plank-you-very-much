@@ -1,17 +1,17 @@
 "use client"; // Needed for hooks and client-side APIs
 
 import React, { useState, useEffect, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation'; // Import useSearchParams
+import { useSearchParams, useRouter } from 'next/navigation'; // Import useSearchParams and useRouter
 import UserProfileForm from '@/features/settings/components/UserProfileForm';
 import FitbitConnectButton from '@/features/settings/components/FitbitConnectButton';
-import { Button } from '@/components/ui/Button'; // Import Button
+import { Button } from '@/components/ui/button'; // Corrected casing
 import { exportWorkoutData, exportNutritionData } from '@/lib/exportUtils'; // Import export functions
 import { useUserProfileStore } from '@/store/userProfileStore'; // Import store for updates
 import { useMetricsStore } from '@/store/metricsStore'; // Import metrics store
 import { useActivityStore } from '@/store/activityStore'; // Import the new activity store
 import { TutorialModal } from '@/features/tutorials/components/TutorialModal'; // Import TutorialModal
 import { nfcToolsTutorial } from '@/features/tutorials/data/nfc-tools'; // Import tutorial data
-import { fetchFitbitData, clearFitbitTokens } from '@/lib/fitbitActions'; // Import server action
+import { fetchFitbitData } from '@/lib/fitbitActions'; // Import server action
 import { toast } from 'sonner'; // Import toast
 import type { FitbitDaily } from '@/types'; // Import the type for casting
 
@@ -20,26 +20,33 @@ const NotificationSettings = () => {
     const [permission, setPermission] = useState<NotificationPermission | null>(null);
     const [isSubscribing, setIsSubscribing] = useState(false);
     const [subscription, setSubscription] = useState<PushSubscription | null>(null);
+    // Attempt to get user ID, default to placeholder if unavailable
+    const appUserId = useUserProfileStore((state) => state.profile?.id ?? 'PLACEHOLDER_USER_ID_FOR_NOTIFICATIONS'); 
 
     useEffect(() => {
         // Check initial permission state on mount
-        if ('Notification' in window) {
+        if ('Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window) {
             setPermission(Notification.permission);
-        }
-        // Check for existing subscription
-         navigator.serviceWorker.ready.then(registration => {
-            registration.pushManager.getSubscription().then(sub => {
-                if (sub) {
-                    setSubscription(sub);
-                    console.log("Existing push subscription found:", sub);
-                }
+             // Check for existing subscription on mount
+            navigator.serviceWorker.ready.then(registration => {
+                registration.pushManager.getSubscription().then(sub => {
+                    if (sub) {
+                        setSubscription(sub);
+                        console.log("Existing push subscription found:", sub.endpoint);
+                        // Optional: Sync with backend in case local state is outdated
+                        // sendSubscriptionToBackend(sub);
+                    }
+                });
             });
-        });
+        } else {
+            console.warn("Push Notifications not supported by this browser.");
+            setPermission('denied'); // Treat as denied if not supported
+        }
     }, []);
 
     const requestPermission = async () => {
         if (!('Notification' in window)) {
-            alert("This browser does not support desktop notification");
+            toast.error("This browser does not support desktop notification");
             return;
         }
 
@@ -47,64 +54,135 @@ const NotificationSettings = () => {
         setPermission(status);
 
         if (status === 'granted') {
-            console.log("Notification permission granted.");
+            toast.success("Notification permission granted.");
             // Automatically try to subscribe after permission granted
             subscribeToPush(); 
         } else {
-            console.log("Notification permission denied.");
+            toast.warning("Notification permission denied.");
+        }
+    };
+
+    // Function to send subscription to backend
+    const sendSubscriptionToBackend = async (sub: PushSubscription) => {
+        if (appUserId === 'PLACEHOLDER_USER_ID_FOR_NOTIFICATIONS') {
+            console.warn("Cannot send subscription to backend without a valid user ID.");
+            toast.error("Cannot save subscription: User identification missing.");
+            return; // Don't attempt if user ID is missing
+        }
+        // TODO: Implement actual backend API call
+        console.log(`Sending subscription to backend for user ${appUserId}:`, JSON.stringify(sub));
+        try {
+            const response = await fetch('/api/notifications/subscribe', { 
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ subscription: sub, userId: appUserId }), // Send subscription and valid user ID
+            });
+            if (!response.ok) {
+                throw new Error(`Backend subscription failed: ${response.statusText}`);
+            }
+            console.log("Subscription sent to backend successfully.");
+            toast.success("Push notifications enabled on server.");
+        } catch (error) {
+            console.error("Failed to send subscription to backend:", error);
+            toast.error("Failed to save subscription to server.");
+            // Optional: Attempt to unsubscribe locally if backend failed?
+            // if (subscription) { subscription.unsubscribe(); setSubscription(null); }
         }
     };
 
     const subscribeToPush = async () => {
         if (permission !== 'granted') {
-            console.log("Cannot subscribe, permission not granted.");
+            toast.warning("Cannot subscribe, permission not granted.");
             return;
         }
         if (subscription) {
-            console.log("Already subscribed.");
+            toast.info("Already subscribed.");
             return;
         }
 
         setIsSubscribing(true);
+        toast.info("Subscribing to push notifications...");
         try {
             const registration = await navigator.serviceWorker.ready;
-            // TODO: Provide VAPID public key from environment variable
-            const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || 'YOUR_VAPID_PUBLIC_KEY';
-            if (!vapidPublicKey || vapidPublicKey === 'YOUR_VAPID_PUBLIC_KEY') {
+            const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+            
+            if (!vapidPublicKey) {
                  console.error('VAPID public key is not configured.');
-                 alert('Notification subscription failed: Server configuration missing.');
+                 toast.error('Notification Error', { description: 'Server configuration missing (VAPID key).', duration: 5000 });
                  setIsSubscribing(false);
                  return;
             }
 
             const sub = await registration.pushManager.subscribe({
-                userVisibleOnly: true,
-                applicationServerKey: vapidPublicKey,
+                userVisibleOnly: true, // Required for web push
+                applicationServerKey: vapidPublicKey, // URL Base64 encoded
             });
             setSubscription(sub);
-            console.log('Push subscription successful:', sub);
-            // TODO: Send the subscription object (sub) to your backend server to store it!
-            // Example: await fetch('/api/save-subscription', { method: 'POST', body: JSON.stringify(sub) });
+            console.log('Push subscription successful:', sub.endpoint);
+            
+            // Send the subscription object to backend
+            await sendSubscriptionToBackend(sub);
+
         } catch (error) {
             console.error('Failed to subscribe to push notifications:', error);
-            // Handle specific errors like missing VAPID key
-            setPermission('denied'); // May revert permission if subscription fails badly
+            toast.error('Subscription Failed', { description: `Could not subscribe. ${error instanceof Error ? error.message : 'Unknown error'}`, duration: 5000 });
+            // Consider resetting permission state if subscription fails critically
+            // setPermission('default');
         } finally {
             setIsSubscribing(false);
         }
     };
 
-    // TODO: Implement unsubscribe logic
+     // Function to remove subscription from backend
+    const removeSubscriptionFromBackend = async (subEndpoint: string) => {
+        if (appUserId === 'PLACEHOLDER_USER_ID_FOR_NOTIFICATIONS') {
+            console.warn("Cannot remove subscription from backend without a valid user ID.");
+            toast.error("Cannot remove subscription: User identification missing.");
+            return; // Don't attempt if user ID is missing
+        }
+        // TODO: Implement actual backend API call
+        console.log(`Removing subscription from backend for user ${appUserId}:`, subEndpoint);
+        try {
+            const response = await fetch('/api/notifications/unsubscribe', { 
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ endpoint: subEndpoint, userId: appUserId }), // Identify subscription by endpoint and valid user
+            });
+            if (!response.ok) {
+                throw new Error(`Backend unsubscription failed: ${response.statusText}`);
+            }
+            console.log("Subscription removed from backend successfully.");
+             toast.success("Push notifications disabled on server.");
+        } catch (error) {
+            console.error("Failed to remove subscription from backend:", error);
+            toast.error("Failed to remove subscription from server.");
+            // Don't revert local state, user can try again
+        }
+    };
+
     const unsubscribeFromPush = async () => {
         if (!subscription) return;
         setIsSubscribing(true);
+        toast.info("Unsubscribing...");
+        const subEndpoint = subscription.endpoint; // Store endpoint before unsubscribing
         try {
-            await subscription.unsubscribe();
-            console.log('Unsubscribed successfully.');
-             // TODO: Send request to backend to remove the subscription
-            setSubscription(null);
+            const unsubscribed = await subscription.unsubscribe();
+            if(unsubscribed) {
+                console.log('Unsubscribed successfully locally.');
+                setSubscription(null);
+                // Send request to backend to remove the subscription
+                await removeSubscriptionFromBackend(subEndpoint);
+            } else {
+                 console.error('Local unsubscribe failed.');
+                 toast.error("Failed to unsubscribe locally.");
+            }
         } catch (error) {
              console.error('Failed to unsubscribe:', error);
+             toast.error("Unsubscribe failed", { description: `${error instanceof Error ? error.message : 'Unknown error'}` });
         } finally {
              setIsSubscribing(false);
         }
@@ -290,7 +368,7 @@ const IntegrationSettings = () => {
         
         try {
             // Call the server action to clear tokens
-            await clearFitbitTokens();
+            await fetchFitbitData('/oauth2/revoke');
             
             // Update the local store to reflect disconnection
             updateSettings({ fitbitUserId: undefined });
@@ -299,7 +377,6 @@ const IntegrationSettings = () => {
             toast.success("Fitbit Disconnected", { 
                  description: "Your Fitbit account has been disconnected from the app." 
             });
-            
              // TODO: Optionally call Fitbit's token revocation endpoint
              // Requires making an authenticated POST request to https://api.fitbit.com/oauth2/revoke
              // with the access or refresh token. Needs the token before clearing it.
@@ -379,59 +456,60 @@ const IntegrationSettings = () => {
     );
 };
 
-// --- Component to Handle Fitbit Callback Logic --- 
-const FitbitCallbackHandler: React.FC = () => {
-    const searchParams = useSearchParams();
-    const updateSettings = useUserProfileStore((state) => state.updateSettings);
+// Wrap the main content in a component to use Suspense
+function SettingsPageContent() {
+    const searchParams = useSearchParams(); // Get search params
+    const { updateSettings } = useUserProfileStore(
+        (state) => ({ updateSettings: state.updateSettings })
+    );
+    const router = useRouter(); // Import and use useRouter for clearing params
 
     useEffect(() => {
-        const fitbitStatus = searchParams.get('fitbit');
-        const reason = searchParams.get('reason');
+        const fitbitStatus = searchParams.get('fitbit_status');
         const fitbitUser = searchParams.get('fitbit_user');
+        const reason = searchParams.get('reason');
+        const detail = searchParams.get('detail');
 
         if (fitbitStatus === 'success' && fitbitUser) {
-            // Update store with Fitbit User ID if not already set (idempotent)
-            // Check might be needed if user refreshes page after success
-            updateSettings({ fitbitUserId: fitbitUser }); 
-            // Use toast for success
-            toast.success('Fitbit connected successfully!');
-            // Clean the URL
-            window.history.replaceState(null, '', '/settings'); 
+            console.log('Fitbit connect success callback received, updating store with user ID:', fitbitUser);
+            updateSettings({ fitbitUserId: fitbitUser });
+            toast.success("Fitbit connected successfully!");
+            // Clean the URL params
+            router.replace('/settings', { scroll: false }); 
         } else if (fitbitStatus === 'error') {
-            console.error(`Fitbit connection error: ${reason}`);
-            // Use toast for error
-            toast.error('Fitbit connection failed', {
-                description: reason || 'Unknown error',
+            console.error(`Fitbit connect error callback received. Reason: ${reason}, Detail: ${detail}`);
+            toast.error("Fitbit Connection Failed", { 
+                description: `Reason: ${reason || 'Unknown'}${detail ? ` (${detail})` : ''}` 
             });
-            // Clean the URL
-             window.history.replaceState(null, '', '/settings'); 
+            // Clean the URL params
+            router.replace('/settings', { scroll: false });
         }
-    // Run only once on mount when searchParams are available
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [searchParams]); // Removed updateSettings from deps as it should be stable
+        // Only run once when params change after mount
+    }, [searchParams, updateSettings, router]);
 
-    // No need to render anything here, toasts handle feedback
-    return null;
-};
-
-// --- Main Settings Page Component --- 
-// Wrap SettingsPage content with Suspense for useSearchParams
-function SettingsPageContent() {
     return (
-        <div className="space-y-6">
-            <h1 className="text-2xl font-bold">Settings</h1>
+        <div className="container mx-auto p-4 space-y-6">
+            <h1 className="text-2xl font-semibold">Settings</h1>
+
+            {/* User Profile Section */}
             <UserProfileForm />
+
+            {/* Integrations Section */}
             <IntegrationSettings />
+
+            {/* Notification Settings Section */}
             <NotificationSettings />
+            
+            {/* Data Export Section */}
             <DataExportSettings />
-            <FitbitCallbackHandler /> { /* Handles redirect logic */ }
+
         </div>
     );
 }
 
 export default function SettingsPage() {
     return (
-        <Suspense fallback={<div>Loading settings...</div>}> { /* Suspense boundary */ }
+        <Suspense fallback={<div>Loading Settings...</div>}>
              <SettingsPageContent />
         </Suspense>
     );

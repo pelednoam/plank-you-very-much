@@ -6,10 +6,11 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useUserProfileStore } from '@/store/userProfileStore';
 import type { UserProfile, ActivityLevel } from '@/types';
-import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Label } from '@/components/ui/Label';
-import { Select, SelectOption } from '@/components/ui/Select';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectOption } from '@/components/ui/select';
+import { toast } from 'sonner';
 
 // Define activity levels and descriptions for the form
 const ACTIVITY_LEVELS: { value: ActivityLevel; label: string; description: string }[] = [
@@ -20,14 +21,21 @@ const ACTIVITY_LEVELS: { value: ActivityLevel; label: string; description: strin
     { value: 'very_active', label: 'Very Active', description: 'Very hard exercise/sports & physical job' },
 ];
 
-// Update Zod schema to include activityLevel
+// Update Zod schema to include goal fields
 const profileSchema = z.object({
     name: z.string().min(1, 'Name is required'),
     dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)').optional().or(z.literal('')),
     sex: z.enum(['male', 'female', '']).optional(),
     heightCm: z.number({ invalid_type_error: 'Height must be a number' }).positive('Height must be positive').optional().or(z.literal('')),
-    activityLevel: z.enum(['sedentary', 'light', 'moderate', 'active', 'very_active', '']).optional(), // Add activity level, allow empty
+    activityLevel: z.enum(['SEDENTARY', 'LIGHT', 'MODERATE', 'ACTIVE', 'VERY_ACTIVE', '']).optional(), // Allow empty string
     lactoseSensitive: z.boolean(),
+    // Goals
+    targetBodyFatPct: z.number({ invalid_type_error: 'Target must be a number' })
+                        .positive('Target must be positive')
+                        .max(50, 'Target seems too high') // Example max validation
+                        .optional()
+                        .or(z.literal('')), // Allow empty string
+    targetDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)').optional().or(z.literal('')),
 });
 
 // Update form data type
@@ -45,14 +53,16 @@ const UserProfileForm: React.FC = () => {
         formState: { errors, isSubmitting, isDirty },
     } = useForm<ProfileFormData>({
         resolver: zodResolver(profileSchema),
-        // Update default values to include activityLevel
+        // Update default values to include goals
         values: {
             name: profile?.name ?? '',
             dob: profile?.dob ?? '',
             sex: profile?.sex ?? '',
             heightCm: profile?.heightCm ?? '',
-            activityLevel: profile?.activityLevel ?? '', // Default to empty if not set
+            activityLevel: profile?.activityLevel ?? '',
             lactoseSensitive: profile?.lactoseSensitive ?? false,
+            targetBodyFatPct: profile?.targetBodyFatPct ?? '', // Default goal fields
+            targetDate: profile?.targetDate ?? '',
         }
     });
 
@@ -65,6 +75,8 @@ const UserProfileForm: React.FC = () => {
             heightCm: profile?.heightCm ?? '',
             activityLevel: profile?.activityLevel ?? '',
             lactoseSensitive: profile?.lactoseSensitive ?? false,
+            targetBodyFatPct: profile?.targetBodyFatPct ?? '',
+            targetDate: profile?.targetDate ?? '',
         });
     }, [profile, reset]);
 
@@ -73,22 +85,27 @@ const UserProfileForm: React.FC = () => {
         const updateData: Partial<UserProfile> = {
             ...data,
             heightCm: data.heightCm === '' ? undefined : Number(data.heightCm),
+            targetBodyFatPct: data.targetBodyFatPct === '' ? undefined : Number(data.targetBodyFatPct),
             dob: data.dob === '' ? undefined : data.dob,
             sex: data.sex === '' ? undefined : data.sex,
-            // Handle activityLevel empty string case
             activityLevel: data.activityLevel === '' ? undefined : data.activityLevel,
+            targetDate: data.targetDate === '' ? undefined : data.targetDate,
         };
 
         try {
             updateSettings(updateData);
-            reset(data);
+            // Use current form values for reset to keep displayed data consistent after save
+            reset(data); 
+            toast.success("Profile Updated", { description: "Your settings have been saved." });
         } catch (error) {
             console.error("Failed to update profile:", error);
+            toast.error("Update Failed", { description: "Could not save settings. Please try again." });
         }
     };
 
     return (
         <form onSubmit={handleSubmit(onSubmit)} className="p-4 border rounded shadow bg-white space-y-4">
+            <h3 className="text-lg font-semibold border-b pb-2">User Profile</h3>
             {/* Name */}
             <div>
                 <Label htmlFor="name">Name</Label>
@@ -153,6 +170,30 @@ const UserProfileForm: React.FC = () => {
                  <Input id="lactoseSensitive" type="checkbox" {...register('lactoseSensitive')} className="h-4 w-4" disabled={isSubmitting} />
                 <Label htmlFor="lactoseSensitive">Lactose Sensitive</Label>
                 {errors.lactoseSensitive && <p className="text-red-500 text-sm mt-1">{errors.lactoseSensitive.message}</p>}
+            </div>
+
+            {/* Goals Section */}
+             <h3 className="text-lg font-semibold border-b pb-2 pt-4">Goals</h3>
+             <div>
+                <Label htmlFor="targetBodyFatPct">Target Body Fat (%)</Label>
+                <Input 
+                    id="targetBodyFatPct" 
+                    type="number" 
+                    step="0.1" 
+                    {...register('targetBodyFatPct', {setValueAs: (v) => v === '' ? '' : Number(v) })}
+                    disabled={isSubmitting}
+                />
+                {errors.targetBodyFatPct && <p className="text-red-500 text-sm mt-1">{errors.targetBodyFatPct.message}</p>}
+            </div>
+            <div>
+                <Label htmlFor="targetDate">Target Date</Label>
+                <Input 
+                    id="targetDate" 
+                    type="date" 
+                    {...register('targetDate')}
+                    disabled={isSubmitting}
+                 />
+                {errors.targetDate && <p className="text-red-500 text-sm mt-1">{errors.targetDate.message}</p>}
             </div>
 
             {/* Submit Button */}

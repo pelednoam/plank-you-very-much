@@ -11,6 +11,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectOption } from '@/components/ui/select';
+import { toast } from 'sonner';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 
 // Schema based on Meal type (excluding id, timestamp)
 const mealSchema = z.object({
@@ -32,6 +34,7 @@ const MealLogForm: React.FC = () => {
         getAssetById: state.getAssetById,
     }));
     const [mealMediaAssets, setMealMediaAssets] = useState<MediaAsset[]>([]);
+    const isOnline = useOnlineStatus();
 
     const {
         register,
@@ -60,17 +63,24 @@ const MealLogForm: React.FC = () => {
     const selectedMediaId = watch('mediaId');
     const selectedAsset = selectedMediaId ? getAssetById(selectedMediaId) : null;
 
-    const onSubmit: SubmitHandler<MealFormData> = (data) => {
+    const onSubmit: SubmitHandler<MealFormData> = async (data) => {
         try {
             const mealDataForStore = {
                 ...data,
                 mediaIds: data.mediaId ? [data.mediaId] : [],
             };
-            addMeal(mealDataForStore);
-            reset();
+            const result = await addMeal(mealDataForStore, isOnline);
+
+            if (result !== null) {
+                toast.success("Meal Logged", { description: `${data.kcal} kcal meal added.` });
+                reset();
+            } else {
+                toast.info("Offline: Meal log queued.");
+                reset();
+            }
         } catch (error) {
             console.error("Failed to log meal:", error);
-            // TODO: User-facing error message
+            toast.error("Error Logging Meal", { description: "Could not save meal log." });
         }
     };
 

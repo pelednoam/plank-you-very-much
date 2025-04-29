@@ -1,8 +1,11 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { storeFitbitTokens } from '@/lib/fitbitActions'; // Import the server action
+import { storeFitbitTokens } from '@/lib/fitbitActions'; // Import the refactored server action
 // NOTE: Server-side store updates are tricky without a backend adapter or server actions.
 // For now, we'll focus on the token exchange and assume client-side will react to redirection.
 // import { useUserProfileStore } from '@/store/userProfileStore';
+
+// NOTE: This API route handles server-to-server token exchange and storage initiation.
+// The client-side settings page will need to react to the redirect parameters.
 
 export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
@@ -12,8 +15,7 @@ export async function GET(request: NextRequest) {
 
     if (!code) {
         console.error('Fitbit callback error: No code received.');
-        // Redirect back to settings with an error
-        return NextResponse.redirect(new URL('/settings?fitbit=error&reason=no_code', request.url));
+        return NextResponse.redirect(new URL('/settings?fitbit_status=error&reason=no_code', request.url));
     }
 
     // --- Environment Variables --- 
@@ -23,7 +25,7 @@ export async function GET(request: NextRequest) {
 
     if (!clientId || !clientSecret || !redirectUri) {
         console.error('Fitbit callback error: Missing environment variables.');
-         return NextResponse.redirect(new URL('/settings?fitbit=error&reason=config_missing', request.url));
+         return NextResponse.redirect(new URL('/settings?fitbit_status=error&reason=config_missing', request.url));
     }
 
     // --- Token Exchange --- 
@@ -34,9 +36,9 @@ export async function GET(request: NextRequest) {
         grant_type: 'authorization_code',
         code: code,
         redirect_uri: redirectUri,
-        // client_id: clientId, // Spec says include in body AND header, but often only header needed
     });
 
+    let tokenData: any;
     try {
         const response = await fetch(tokenUrl, {
             method: 'POST',
@@ -47,45 +49,52 @@ export async function GET(request: NextRequest) {
             body: body.toString(),
         });
 
+        tokenData = await response.json(); // Get data regardless of status for logging
+
         if (!response.ok) {
-            const errorData = await response.json();
-            console.error('Fitbit token exchange failed:', response.status, errorData);
-            const reason = errorData?.errors?.[0]?.errorType || 'token_exchange_failed';
-            return NextResponse.redirect(new URL(`/settings?fitbit=error&reason=${reason}&status=${response.status}`, request.url));
+            console.error('Fitbit token exchange failed:', response.status, tokenData);
+            const reason = tokenData?.errors?.[0]?.errorType || 'token_exchange_failed';
+            return NextResponse.redirect(new URL(`/settings?fitbit_status=error&reason=${reason}&status=${response.status}`, request.url));
         }
-
-        const tokenData = await response.json();
-        const { access_token, refresh_token, user_id: fitbitUserId, expires_in } = tokenData;
-
-        // --- Store Tokens using Server Action --- 
-        console.log("Fitbit connection successful. Calling server action to store tokens...");
-        
-        try {
-            await storeFitbitTokens({
-                accessToken: access_token,
-                refreshToken: refresh_token,
-                fitbitUserId: fitbitUserId,
-                expiresIn: expires_in, // Store expiry time
-            });
-            console.log("Server action storeFitbitTokens completed.");
-        } catch (storeError) {
-            console.error("Failed to store Fitbit tokens via server action:", storeError);
-            // Decide how to handle: still redirect success? Or show specific error?
-            // For now, log error and continue with success redirect.
-             return NextResponse.redirect(new URL('/settings?fitbit=error&reason=token_storage_failed', request.url));
-        }
-
-        // --- Redirect on Success --- 
-        // Pass fitbitUserId back to client for potential store update
-        const redirectUrl = new URL('/settings?fitbit=success', request.url);
-        // Add fitbitUserId to search params for client-side handling
-        if (fitbitUserId) {
-             redirectUrl.searchParams.set('fitbit_user', fitbitUserId);
-        }
-        return NextResponse.redirect(redirectUrl);
-
-    } catch (error) {
-        console.error('Fitbit callback error:', error);
-        return NextResponse.redirect(new URL('/settings?fitbit=error&reason=unknown', request.url));
+    } catch (exchangeError) {
+         console.error('Fitbit token exchange network error:', exchangeError);
+         return NextResponse.redirect(new URL('/settings?fitbit_status=error&reason=token_exchange_network_error', request.url));
     }
+
+    // --- Store Tokens using Server Action --- 
+    const { access_token, refresh_token, user_id: fitbitUserId, expires_in } = tokenData;
+
+    if (!access_token || !refresh_token || !fitbitUserId || expires_in === undefined) {
+         console.error('Fitbit token exchange error: Incomplete token data received.', tokenData);
+         return NextResponse.redirect(new URL('/settings?fitbit_status=error&reason=incomplete_token_data', request.url));
+    }
+
+    console.log("Fitbit token exchange successful. Calling server action to store tokens...");
+    try {
+        // Call the refactored server action
+        const storeResult = await storeFitbitTokens({
+            accessToken: access_token,
+            refreshToken: refresh_token,
+            fitbitUserId: fitbitUserId,
+            expiresIn: expires_in, 
+        });
+
+        if (!storeResult.success) {
+             console.error("Failed to store Fitbit tokens via server action:", storeResult.error);
+             return NextResponse.redirect(new URL(`/settings?fitbit_status=error&reason=token_storage_failed&detail=${storeResult.error || 'unknown'}`, request.url));
+        }
+        
+        console.log("Server action storeFitbitTokens completed successfully.");
+
+    } catch (storeActionError) {
+        console.error("Error executing storeFitbitTokens server action:", storeActionError);
+        return NextResponse.redirect(new URL('/settings?fitbit_status=error&reason=token_storage_action_error', request.url));
+    }
+
+    // --- Redirect on Success --- 
+    const redirectUrl = new URL('/settings?fitbit_status=success', request.url);
+    // Pass fitbitUserId back to client for UI update
+    redirectUrl.searchParams.set('fitbit_user', fitbitUserId);
+    
+    return NextResponse.redirect(redirectUrl);
 } 
