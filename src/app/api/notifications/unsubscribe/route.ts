@@ -12,6 +12,7 @@ const getUserSubscriptionsKey = (userId: string) => `subscriptions:user:${userId
  */
 export async function POST(request: NextRequest) {
     let userId: string | null = null;
+    let internalErrorOccurred = false; // Flag to track errors within the loop
     try {
         userId = await getCurrentUserId();
         if (!userId) {
@@ -31,7 +32,6 @@ export async function POST(request: NextRequest) {
 
         console.log(`[API Unsubscribe] Attempting to remove subscription with endpoint: ${endpointToRemove} for user ${userId}`);
 
-        // Fetch all subscriptions for the user
         const currentSubscriptions = await kv.smembers(userSubsKey);
 
         let removedCount = 0;
@@ -39,28 +39,34 @@ export async function POST(request: NextRequest) {
             try {
                 const sub = JSON.parse(subString);
                 if (sub.endpoint === endpointToRemove) {
-                    // Remove the specific subscription string from the set
-                    const removed = await kv.srem(userSubsKey, subString);
-                    if (removed > 0) {
-                         console.log(`[API Unsubscribe] Successfully removed subscription ending in ...${endpointToRemove.slice(-6)} for user ${userId}.`);
-                         removedCount++;
-                         // Break if only expecting one match per endpoint, or continue if duplicates possible
-                         break; 
+                    try {
+                        const removed = await kv.srem(userSubsKey, subString);
+                        if (removed > 0) {
+                            console.log(`[API Unsubscribe] Successfully removed subscription ending in ...${endpointToRemove.slice(-6)} for user ${userId}.`);
+                            removedCount++;
+                            break;
+                        }
+                    } catch (sremError) {
+                        console.error(`[API Unsubscribe] Error during kv.srem for user ${userId}, subscription ${subString}:`, sremError);
+                        internalErrorOccurred = true;
+                        break;
                     }
                 }
             } catch (parseError) {
                 console.error(`[API Unsubscribe] Error parsing subscription string for user ${userId}: ${subString}`, parseError);
-                // Optionally remove invalid data? 
-                // await kv.srem(userSubsKey, subString);
+                // Don't set internalErrorOccurred here
             }
         }
 
+        if (internalErrorOccurred) {
+            return NextResponse.json({ error: 'Internal server error removing subscription' }, { status: 500 });
+        }
+
         if (removedCount > 0) {
-             return NextResponse.json({ message: 'Subscription removed successfully' }, { status: 200 });
+            return NextResponse.json({ message: 'Subscription removed successfully' }, { status: 200 });
         } else {
-             console.log(`[API Unsubscribe] Subscription with endpoint ${endpointToRemove} not found for user ${userId}.`);
-             // Return success even if not found, as the desired state (not subscribed) is achieved
-             return NextResponse.json({ message: 'Subscription not found or already removed' }, { status: 200 });
+            console.log(`[API Unsubscribe] Subscription with endpoint ${endpointToRemove} not found for user ${userId}.`);
+            return NextResponse.json({ message: 'Subscription not found or already removed' }, { status: 200 });
         }
 
     } catch (error) {

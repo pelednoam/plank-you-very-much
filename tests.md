@@ -8,6 +8,7 @@ This document tracks the status of automated tests in the Plank You Very Much pr
 *   ⚠️ **Skipped:** Some or all tests in the suite are skipped (e.g., due to known issues, incomplete features, or environment problems).
 *   ❌ **Failing:** Some or all tests in the suite are currently failing.
 *   ➖ **Missing:** Tests for this area have not yet been implemented.
+*   🔄 **Updated:** Test has been updated to cover new functionality but still needs verification.
 
 ---
 
@@ -48,8 +49,8 @@ These tests verify individual functions, components, or modules in isolation.
     *   **Status:** ✅ Passing
     *   **Description:** Tests adding/deleting meals with offline handling.
 *   **`src/store/plannerStore.test.ts`**
-    *   **Status:** ✅ Passing
-    *   **Description:** Tests plan generation, workout completion, offline handling.
+    *   **Status:** 🔄 Updated
+    *   **Description:** Tests plan generation, workout completion, offline handling. Needs update verification for multi-plan storage and adaptive logic.
 *   **`src/store/userProfileStore.test.ts`**
     *   **Status:** ✅ Passing
     *   **Description:** Tests profile updates, goal setting, Fitbit connection, fitness data updates.
@@ -57,8 +58,8 @@ These tests verify individual functions, components, or modules in isolation.
 ### Features (`src/features`)
 
 *   **`src/features/planner/utils/generatePlan.test.ts`**
-    *   **Status:** ✅ Passing
-    *   **Description:** Tests basic plan generation logic.
+    *   **Status:** 🔄 Updated
+    *   **Description:** Tests basic plan generation logic. Needs expansion to cover adaptive logic based on previous week completion rates.
 
 ### API Routes (`src/app/api`)
 
@@ -79,7 +80,25 @@ These tests verify individual functions, components, or modules in isolation.
 
 *   **Status:** ➖ Missing
 *   **Description:** No component-level tests implemented yet.
-    *   Examples: `<UserProfileForm />`, `<WorkoutDetailsModal />`, `<Dashboard />`, `<Planner />`, `<AuthButtons />`.
+    *   Examples: `<UserProfileForm />`, `<WorkoutDetailsModal />`, `<Dashboard />`, `<Planner />`, `<AuthButtons />`, `<SignInButton />`, `<SignOutButton />`.
+
+### Auth Components (`src/components/auth`)
+
+*   **`src/components/auth/SignInButton.tsx`**
+    *   **Status:** ➖ Missing
+    *   **Description:** Tests for sign-in button functionality.
+*   **`src/components/auth/SignOutButton.tsx`**
+    *   **Status:** ➖ Missing
+    *   **Description:** Tests for sign-out button functionality.
+*   **`src/components/auth/AuthButtons.tsx`**
+    *   **Status:** ➖ Missing
+    *   **Description:** Tests for conditional rendering based on session state.
+
+### Auth Middleware
+
+*   **`src/middleware.ts`**
+    *   **Status:** ➖ Missing
+    *   **Description:** Tests for route protection middleware implementation.
 
 ---
 
@@ -94,7 +113,8 @@ These tests verify individual functions, components, or modules in isolation.
 **Summary:**
 
 *   Most core utilities, stores, and API routes (Fitbit, **Notifications**) have passing unit tests.
-*   Tests for `src/lib/auth.ts`, the NextAuth API route, all Components, and E2E flows are missing.
+*   Tests for authentication components (`SignInButton`, `SignOutButton`, `AuthButtons`), `src/lib/auth.ts`, the NextAuth API route, all other Components, and E2E flows are missing.
+*   The `plannerStore.test.ts` and `generatePlan.test.ts` tests need updates to cover the new adaptive logic functionality.
 
 ## Running Tests
 

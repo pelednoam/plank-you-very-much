@@ -1,22 +1,18 @@
 export { auth as middleware } from "@/../auth" 
 
-// Add protected routes here
 // See https://nextjs.org/docs/app/building-your-application/routing/middleware#matcher
-// export const config = {
-//   matcher: [
-//     /*
-//      * Match all request paths except for the ones starting with:
-//      * - api (API routes)
-//      * - _next/static (static files)
-//      * - _next/image (image optimization files)
-//      * - favicon.ico (favicon file)
-//      * - login (example login page)
-//      */
-//     '/((?!api|_next/static|_next/image|favicon.ico|login).*)', 
-//   ],
-// };
 
-// Example: Protect only the /settings route
+// Protect the core application routes. 
+// Unauthenticated users attempting to access these routes will be redirected 
+// to the NextAuth.js default sign-in page (or a custom one if configured in auth.config.ts).
 export const config = {
-   matcher: ['/settings'],
+   matcher: [
+       '/', // Protect the root Dashboard
+       '/planner/:path*', // Protect planner and any sub-routes
+       '/nutrition/:path*', // Protect nutrition and any sub-routes
+       '/knowledge/:path*', // Protect knowledge base and any sub-routes
+       '/settings/:path*', // Protect settings and any sub-routes
+        // Add other routes to protect here if needed.
+        // Routes NOT listed here (like /onboard, /api/*) remain public.
+    ],
 }; 

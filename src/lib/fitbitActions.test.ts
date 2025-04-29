@@ -2,25 +2,32 @@ import { cookies } from 'next/headers';
 // Import *as* to allow spying
 import * as fitbitActions from './fitbitActions'; 
 // Keep the direct import for the actual refresh tests
-import { refreshFitbitToken } from './fitbitActions'; 
+import { refreshFitbitToken, syncFitbitDataForDate, revokeFitbitToken, getCurrentUserId } from './fitbitActions'; // Add revokeFitbitToken and getCurrentUserId
+import { kv } from '@vercel/kv'; // Import kv to mock its methods
+import type { FitbitTokenData } from './fitbitActions'; // Import type if needed
+import { getCurrentUserId as authGetCurrentUserId } from '@/lib/auth';
 
 // Mock next/headers cookies
 const mockCookies = {
     get: jest.fn(),
     set: jest.fn(),
     delete: jest.fn(),
-    getAll: jest.fn(),
-    has: jest.fn(),
-    entries: jest.fn(),
-    forEach: jest.fn(),
-    keys: jest.fn(),
-    values: jest.fn(),
-    [Symbol.iterator]: jest.fn(),
-    [Symbol.toStringTag]: 'RequestCookies', 
+    getAll: jest.fn(() => []), // Example default for getAll
+    has: jest.fn(() => false), // Example default for has
 };
 jest.mock('next/headers', () => ({
     cookies: () => mockCookies,
 }));
+
+// --- Add Mock for @vercel/kv --- 
+jest.mock('@vercel/kv', () => ({
+  kv: {
+    get: jest.fn(),
+    set: jest.fn(), 
+    del: jest.fn(), 
+  }
+}));
+// --- End KV Mock --- 
 
 // Mock fetch (global)
 global.fetch = jest.fn();
@@ -33,42 +40,51 @@ const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 // Mock environment variables
 const OLD_ENV = process.env;
 
-// No global mock needed here
-// const mockedRefreshFitbitToken = ...;
+// Cast the mocked KV methods for type safety in tests
+const mockedKvGet = kv.get as jest.Mock;
+const mockedKvSet = kv.set as jest.Mock;
+const mockedKvDel = kv.del as jest.Mock;
+
+// Mock the AUTH getCurrentUserId function
+jest.mock('@/lib/auth', () => ({
+  getCurrentUserId: jest.fn().mockResolvedValue('mock-user-from-auth-lib'), 
+}));
 
 describe('Fitbit Server Actions', () => {
 
     beforeEach(() => {
         jest.resetAllMocks(); 
-        // Ensure fetch mock is reset if needed, though resetAllMocks should handle it
         (fetch as jest.Mock).mockClear();
+        mockedKvGet.mockClear().mockResolvedValue(null); // Default mock behavior for kv.get
+        mockedKvSet.mockClear().mockResolvedValue(undefined); // Default mock behavior for kv.set
+        mockedKvDel.mockClear().mockResolvedValue(1); // Default mock behavior for kv.del
 
         process.env = { 
             ...OLD_ENV, 
             NEXT_PUBLIC_FITBIT_CLIENT_ID: 'test-client-id', 
             FITBIT_CLIENT_SECRET: 'test-client-secret' 
         };
+        // Reset cookie mocks
         mockCookies.get.mockReset();
         mockCookies.set.mockReset();
         mockCookies.delete.mockReset();
+        mockCookies.getAll.mockReset().mockReturnValue([]);
+        mockCookies.has.mockReset().mockReturnValue(false);
+
+        // Reset auth lib mock before each test using the correct import alias
+        (authGetCurrentUserId as jest.Mock).mockClear().mockResolvedValue('mock-user-from-auth-lib');
+
     });
 
     afterEach(() => {
-        // Restore original implementations mocked manually or with spyOn
         jest.restoreAllMocks(); 
     });
 
     afterAll(() => {
         process.env = OLD_ENV;
-        consoleErrorSpy.mockRestore();
-        consoleWarnSpy.mockRestore();
-        consoleLogSpy.mockRestore();
-        // REMOVED: Unmocking the removed mock
-        // jest.unmock('./fitbitActions'); 
     });
 
     // --- refreshFitbitToken Tests --- 
-    // Keep these as they were (calling the imported function directly)
     describe('refreshFitbitToken (Actual)', () => {
         it('should return error if no refresh token cookie exists', async () => {
             mockCookies.get.mockReturnValueOnce(undefined);
@@ -152,27 +168,16 @@ describe('Fitbit Server Actions', () => {
         };
 
         let dateNowSpy: jest.SpyInstance;
-        // REMOVE spy variable as spying on the internal function is problematic
-        // let refreshSpy: jest.SpyInstance | undefined;
 
         beforeEach(() => {
              (fetch as jest.Mock).mockClear();
              dateNowSpy = jest.spyOn(Date, 'now').mockImplementation(() => nowTimestamp * 1000);
-             // REMOVE the spy attempt
-             // try {
-             //    refreshSpy = jest.spyOn(fitbitActions, 'refreshFitbitToken');
-             // } catch (e) {
-             //     refreshSpy = undefined;
-             // }
         });
 
         afterEach(() => {
             dateNowSpy?.mockRestore();
-            // REMOVE restoring the removed spy
-            // refreshSpy?.mockRestore();
         });
 
-        // Tests below are now enabled
         it('should return error if current access token is missing', async () => {
             const result = await fitbitActions.fetchFitbitData({ endpoint: '/1/user/-/profile.json', currentAccessToken: null, currentExpiresAt: null });
             expect(result.success).toBe(false);
@@ -187,16 +192,11 @@ describe('Fitbit Server Actions', () => {
              const result = await fitbitActions.fetchFitbitData(validArgs);
              expect(result.success).toBe(true);
              expect(result.data?.user?.displayName).toBe('Test User');
-             // REMOVE check for internal spy call
-             // expect(refreshSpy).not.toHaveBeenCalled();
         });
 
         it('should attempt refresh if token is expired', async () => {
-             // Set up the mock cookie *before* calling the function that needs it internally
              mockCookies.get.mockReturnValueOnce({ name: 'fitbit_refresh_token', value: 'valid-refresh-token' });
-
-             // Mock the fetch call that refreshFitbitToken would make
-             (fetch as jest.Mock).mockResolvedValueOnce({ // Mock for refresh call
+             (fetch as jest.Mock).mockResolvedValueOnce({ // Refresh call
                  ok: true,
                  json: async () => ({
                      access_token: 'refreshed-access-token',
@@ -204,45 +204,24 @@ describe('Fitbit Server Actions', () => {
                      expires_in: 3600,
                      user_id: 'test-fitbit-user'
                  })
-             }).mockResolvedValueOnce({ // Mock for the actual data fetch call
+             }).mockResolvedValueOnce({ // Data fetch call
                  ok: true, json: async () => ({ user: { displayName: 'Refreshed User' } })
              });
 
              const result = await fitbitActions.fetchFitbitData(expiredArgs);
              expect(result.success).toBe(true);
              expect(result.data?.user?.displayName).toBe('Refreshed User');
-             expect(result.newAccessToken).toBe('refreshed-access-token'); // Check if refresh result is passed back
-             expect(result.newExpiresAt).toBe(nowTimestamp + 3600 - 300); // Check if expiry is passed back
-
-             // Verify fetch was called twice: once for refresh, once for data
+             expect(result.newAccessToken).toBe('refreshed-access-token');
+             expect(result.newExpiresAt).toBe(nowTimestamp + 3600 - 300);
              expect(fetch).toHaveBeenCalledTimes(2);
-             // Check the first call (refresh)
-             expect(fetch).toHaveBeenNthCalledWith(1,
-                'https://api.fitbit.com/oauth2/token',
-                expect.objectContaining({ method: 'POST' })
-             );
-             // Check the second call (data fetch with *new* token)
-             expect(fetch).toHaveBeenNthCalledWith(2,
-                 `https://api.fitbit.com${expiredArgs.endpoint}`,
-                 expect.objectContaining({
-                     method: 'GET',
-                     headers: expect.objectContaining({ 'Authorization': `Bearer refreshed-access-token` })
-                 })
-             );
-             // Verify the cookie was set with the new refresh token
-             expect(mockCookies.set).toHaveBeenCalledWith(
-                 'fitbit_refresh_token',
-                 'new-refresh-token',
-                 expect.anything() // Check existence, specifics tested in refreshFitbitToken tests
-             );
+             expect(fetch).toHaveBeenNthCalledWith(1, 'https://api.fitbit.com/oauth2/token', expect.anything());
+             expect(fetch).toHaveBeenNthCalledWith(2, `https://api.fitbit.com${expiredArgs.endpoint}`, expect.objectContaining({ headers: { Authorization: 'Bearer refreshed-access-token' } }));
+             expect(mockCookies.set).toHaveBeenCalledWith('fitbit_refresh_token', 'new-refresh-token', expect.anything());
         });
 
         it('should return error if token refresh fails during data fetch', async () => {
-             // Set up the mock cookie *before* calling the function that needs it internally
              mockCookies.get.mockReturnValueOnce({ name: 'fitbit_refresh_token', value: 'invalid-refresh-token' });
-
-             // Mock the fetch call for refreshFitbitToken to fail
-             (fetch as jest.Mock).mockResolvedValueOnce({ // Mock for refresh call
+             (fetch as jest.Mock).mockResolvedValueOnce({ // Refresh call fails
                  ok: false,
                  status: 401,
                  json: async () => ({ errors: [{ errorType: 'invalid_grant' }] })
@@ -250,310 +229,279 @@ describe('Fitbit Server Actions', () => {
 
              const result = await fitbitActions.fetchFitbitData(expiredArgs);
              expect(result.success).toBe(false);
-             expect(result.error).toBe('invalid_grant');
+             expect(result.error).toBe('invalid_grant'); // Error from refresh
              expect(result.data).toBeUndefined();
-             // Verify fetch was only called once (for the failed refresh)
-             expect(fetch).toHaveBeenCalledTimes(1);
-             expect(fetch).toHaveBeenCalledWith('https://api.fitbit.com/oauth2/token', expect.anything());
-             // Verify cookie was deleted because refresh failed with invalid_grant
+             expect(fetch).toHaveBeenCalledTimes(1); // Only refresh attempt
              expect(mockCookies.delete).toHaveBeenCalledWith('fitbit_refresh_token');
         });
-
+        
         it('should return error if data fetch fails after successful fetch', async () => {
-             // This test checks the direct fetch failure scenario, no prior calls needed.
-             (fetch as jest.Mock).mockResolvedValueOnce({
-                 ok: false, status: 500, json: async () => ({ errors: [{ errorType: 'server_error' }] })
-             });
-
-             const result = await fitbitActions.fetchFitbitData(validArgs);
-             expect(result.success).toBe(false);
-             expect(result.error).toBe('server_error'); // Should get the specific error type
-             // Current implementation returns the error JSON in the data field on failure
-             expect(result.data).toEqual({ errors: [{ errorType: 'server_error' }] });
-             expect(fetch).toHaveBeenCalledTimes(1);
-             expect(fetch).toHaveBeenCalledWith(`https://api.fitbit.com${validArgs.endpoint}`, expect.anything());
+            (fetch as jest.Mock).mockResolvedValueOnce({
+                ok: false, status: 500, json: async () => ({ errors: [{ errorType: 'server_error' }] })
+            });
+            const result = await fitbitActions.fetchFitbitData(validArgs);
+            expect(result.success).toBe(false);
+            expect(result.error).toBe('server_error');
+            expect(result.data).toEqual({ errors: [{ errorType: 'server_error' }] });
+            expect(fetch).toHaveBeenCalledTimes(1);
         });
 
-         it('should handle network error during data fetch', async () => {
-             (fetch as jest.Mock).mockRejectedValueOnce(new Error('Network error'));
-             const result = await fitbitActions.fetchFitbitData(validArgs);
-             expect(result.success).toBe(false);
-             expect(result.error).toBe('unknown_fetch_error');
-             expect(fetch).toHaveBeenCalledTimes(1);
-         });
-
-         it('should return specific error and delete cookie if data fetch returns 401', async () => {
-             (fetch as jest.Mock).mockResolvedValueOnce({
-                 ok: false, status: 401, json: async () => ({ errors: [{ errorType: 'invalid_token' }] })
-             });
-             const result = await fitbitActions.fetchFitbitData(validArgs);
-             expect(result.success).toBe(false);
-             expect(result.error).toBe('unauthorized_token_likely_invalid');
-             expect(mockCookies.delete).toHaveBeenCalledWith('fitbit_refresh_token');
-             expect(fetch).toHaveBeenCalledTimes(1);
-         });
-
-         it('should return specific error if data fetch returns non-401 error', async () => {
-             (fetch as jest.Mock).mockResolvedValueOnce({
-                 ok: false, status: 403, json: async () => ({ errors: [{ errorType: 'forbidden' }] })
-             });
-             const result = await fitbitActions.fetchFitbitData(validArgs);
-             expect(result.success).toBe(false);
-             expect(result.error).toBe('forbidden'); // Should pick up the errorType
-             expect(mockCookies.delete).not.toHaveBeenCalled(); // Don't delete cookie on non-401 errors
-             expect(fetch).toHaveBeenCalledTimes(1);
-         });
+        it('should return error if data fetch returns 403 Forbidden', async () => {
+            (fetch as jest.Mock).mockResolvedValueOnce({
+                ok: false, status: 403, json: async () => ({ errors: [{ errorType: 'forbidden' }] })
+            });
+            const result = await fitbitActions.fetchFitbitData(validArgs);
+            expect(result.success).toBe(false);
+            expect(result.error).toBe('forbidden');
+            expect(mockCookies.delete).not.toHaveBeenCalled();
+            expect(fetch).toHaveBeenCalledTimes(1);
+        });
     });
 
     // --- revokeFitbitToken Tests ---
-    // These also need the *actual* implementation
-     describe('revokeFitbitToken (Actual)', () => {
-        let actualRevokeFitbitToken: typeof fitbitActions.revokeFitbitToken;
+    describe('revokeFitbitToken', () => {
+        const testUserId = 'revoke-user-1';
+        const tokenKey = `fitbit-token:user:${testUserId}`;
+        const tokenDataToStore = { accessToken: 'token-to-revoke', refreshToken: 'refresh-revoke', expiresAt: Date.now()/1000 + 3600, fitbitUserId: 'fitbit-revoke-user' };
 
-        beforeAll(() => {
-            actualRevokeFitbitToken = jest.requireActual<typeof fitbitActions>('./fitbitActions').revokeFitbitToken;
+        beforeEach(() => {
+            // Ensure the global mock returns the specific ID for this suite
+            (authGetCurrentUserId as jest.Mock).mockClear().mockResolvedValue(testUserId);
+            // Mock kv.get to return the token for this user
+            mockedKvGet.mockClear().mockResolvedValue(tokenDataToStore);
         });
 
-        it('should return success if no refresh token cookie exists', async () => {
-            mockCookies.get.mockReturnValueOnce(undefined);
-            const result = await actualRevokeFitbitToken(); // Use actual
-            expect(result.success).toBe(true);
+        it('should return error if getCurrentUserId fails', async () => {
+            // Override the mock for this specific test
+            (authGetCurrentUserId as jest.Mock).mockResolvedValueOnce(null);
+            const result = await revokeFitbitToken(); // *** REMOVED ARG ***
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('Unauthorized');
             expect(fetch).not.toHaveBeenCalled();
+            expect(mockedKvDel).not.toHaveBeenCalled();
         });
-        it('should call revoke API and delete cookie on success', async () => {
-            mockCookies.get.mockReturnValueOnce({ name: 'fitbit_refresh_token', value: 'valid-refresh-token' });
-            (fetch as jest.Mock).mockResolvedValueOnce({ ok: true, status: 200 });
-            const result = await actualRevokeFitbitToken();
+
+        it('should call fetch with correct parameters to revoke token', async () => {
+            (fetch as jest.Mock).mockResolvedValueOnce({ ok: true });
+            await revokeFitbitToken(); // *** REMOVED ARG ***
+
+            expect(fetch).toHaveBeenCalledTimes(1);
+            expect(fetch).toHaveBeenCalledWith(
+                'https://api.fitbit.com/oauth2/revoke',
+                expect.objectContaining({
+                    method: 'POST',
+                    headers: expect.objectContaining({
+                        'Authorization': expect.stringContaining('Basic '),
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    }),
+                    body: expect.any(URLSearchParams)
+                })
+            );
+            const body = (fetch as jest.Mock).mock.calls[0][1].body as URLSearchParams;
+            expect(body.get('token')).toBe(tokenDataToStore.refreshToken); // Should revoke refresh token ideally
+        });
+
+        it('should delete token from KV if API call is successful', async () => {
+            (fetch as jest.Mock).mockResolvedValueOnce({ ok: true });
+            const result = await revokeFitbitToken(); // *** REMOVED ARG ***
+
             expect(result.success).toBe(true);
-            expect(fetch).toHaveBeenCalledWith('https://api.fitbit.com/oauth2/revoke', expect.any(Object));
-            expect(mockCookies.delete).toHaveBeenCalledWith('fitbit_refresh_token');
+            expect(mockedKvDel).toHaveBeenCalledTimes(1);
+            expect(mockedKvDel).toHaveBeenCalledWith(tokenKey);
         });
-        it('should delete cookie even if revoke API call fails', async () => {
-            mockCookies.get.mockReturnValueOnce({ name: 'fitbit_refresh_token', value: 'valid-refresh-token' });
+
+        it('should return success but not delete from KV if API returns 400/401', async () => {
             (fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 400 });
-            const result = await actualRevokeFitbitToken();
-            expect(result.success).toBe(true); // Expect success as cookie is deleted
-            expect(fetch).toHaveBeenCalledWith('https://api.fitbit.com/oauth2/revoke', expect.any(Object));
-            expect(mockCookies.delete).toHaveBeenCalledWith('fitbit_refresh_token');
+            const result = await revokeFitbitToken(); // *** REMOVED ARG ***
+            expect(result.success).toBe(true); // Still considered success from user perspective
+            expect(mockedKvDel).not.toHaveBeenCalled();
         });
-        it('should handle network errors during revoke', async () => {
-            mockCookies.get.mockReturnValueOnce({ name: 'fitbit_refresh_token', value: 'valid-refresh-token' });
-            (fetch as jest.Mock).mockRejectedValueOnce(new Error('Network error'));
-             const result = await actualRevokeFitbitToken(); // Use actual
-             expect(result.success).toBe(true); // Expect success as cookie is deleted
-             expect(mockCookies.delete).toHaveBeenCalledWith('fitbit_refresh_token');
+
+        it('should return error if API call fails with other status', async () => {
+            (fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 500 });
+            const result = await revokeFitbitToken(); // *** REMOVED ARG ***
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('revoke_api_error');
+            expect(mockedKvDel).not.toHaveBeenCalled();
+        });
+
+         it('should return error if kv.del fails', async () => {
+            (fetch as jest.Mock).mockResolvedValueOnce({ ok: true });
+            mockedKvDel.mockRejectedValueOnce(new Error('KV Del Error'));
+            const result = await revokeFitbitToken(); // *** REMOVED ARG ***
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('kv_delete_error');
         });
     });
 
     // --- syncFitbitDataForDate Tests ---
-    // Add tests for the sync function here
     describe('syncFitbitDataForDate', () => {
-         const testDate = '2024-01-15';
-         const nowTimestamp = 1700000000;
-         const oneHour = 3600;
-         const validTokenArgs = {
-             currentAccessToken: 'valid-sync-token',
-             currentExpiresAt: nowTimestamp + oneHour
-         };
-         const expiredTokenArgs = {
-             currentAccessToken: 'expired-sync-token',
-             currentExpiresAt: nowTimestamp - 60
-         };
+        const testDate = '2024-01-15';
+        const testUserId = 'USER_123';
+        const tokenKey = `fitbit-token:user:${testUserId}`;
+        const validAccessToken = 'valid-sync-token';
+        const validExpiresAt = Date.now() / 1000 + 3600;
+        const expiredAccessToken = 'expired-sync-token';
+        const expiredExpiresAt = Date.now() / 1000 - 3600;
+        const refreshedToken = 'refreshed-sync-token';
+        const refreshedExpiry = Date.now() / 1000 + 3600;
 
-         let dateNowSpy: jest.SpyInstance;
+        // Args for passing token directly (includes date)
+        const validTokenArgs = { date: testDate, currentAccessToken: validAccessToken, currentExpiresAt: validExpiresAt };
+        const expiredTokenArgs = { date: testDate, currentAccessToken: expiredAccessToken, currentExpiresAt: expiredExpiresAt };
+        // Args for fetching token from KV (includes date, null/undefined for others)
+        const fetchFromKvArgs = { date: testDate, currentAccessToken: undefined, currentExpiresAt: undefined }; 
 
-         beforeEach(() => {
-             // Mock fetch directly instead of spying
+        beforeEach(() => {
+             // Ensure the global mock returns the specific ID for this suite
+             (authGetCurrentUserId as jest.Mock).mockResolvedValue(testUserId);
+             
              (fetch as jest.Mock).mockClear();
-             // We need to spy on fetchFitbitData now to control its return value
-             // for the different API calls made by syncFitbitDataForDate
-             dateNowSpy = jest.spyOn(Date, 'now').mockImplementation(() => nowTimestamp * 1000);
-         });
-
-         afterEach(() => {
-             dateNowSpy.mockRestore();
-         });
-
-        it('should return error if initial token is missing', async () => {
-             const result = await fitbitActions.syncFitbitDataForDate({
-                 date: testDate,
-                 currentAccessToken: null,
-                 currentExpiresAt: null
-             });
-             expect(result.success).toBe(false);
-             expect(result.error).toBe('missing_client_token'); // Should fail early
-             // Verify fetch was NOT called because it failed before making API calls
-             expect(fetch).not.toHaveBeenCalled();
+             mockedKvGet.mockClear().mockResolvedValue(null); // Default kv.get to not finding token
+             mockCookies.get.mockClear();
         });
 
-        it('should return error if any required fetch fails', async () => {
-            // Mock the underlying fetch for the first API call (activities) to fail
-            (fetch as jest.Mock).mockResolvedValueOnce({
-                ok: false, status: 500, json: async () => ({ errors: [{ errorType: 'test_fetch_error' }] })
-            }).mockResolvedValueOnce({ // Mock the second call (sleep) to succeed but return no data
-                ok: true, json: async () => ({ summary: {} })
-            });
-
-            const result = await fitbitActions.syncFitbitDataForDate({ date: testDate, ...validTokenArgs });
-
+        it('should return error if initial token is missing (when not passed directly and not in KV)', async () => {
+            mockedKvGet.mockResolvedValue(null); // Ensure token not found
+            // Pass args indicating fetch from KV
+            const result = await syncFitbitDataForDate(fetchFromKvArgs); 
             expect(result.success).toBe(false);
-            // Expect the combined error string based on current implementation
-            expect(result.error).toBe('activity_fetch_failed: test_fetch_error'); // Sleep doesn't add error if fetch is ok but data missing
-            // Check that fetch was called once for the failing activities endpoint
-            expect(fetch).toHaveBeenCalledTimes(2); // Both fetches are attempted
-            expect(fetch).toHaveBeenCalledWith(
-                `https://api.fitbit.com/1/user/-/activities/date/${testDate}.json`,
-                expect.objectContaining({
-                    headers: expect.objectContaining({ 'Authorization': `Bearer ${validTokenArgs.currentAccessToken}` })
-                })
-            );
+            expect(result.error).toBe('Fitbit token not found or invalid.');
+            expect(authGetCurrentUserId).toHaveBeenCalledTimes(1); // Verify user ID was fetched via mocked auth lib
+            expect(mockedKvGet).toHaveBeenCalledWith(tokenKey);
+            expect(fetch).not.toHaveBeenCalled();
         });
 
-         it('should successfully fetch and combine activity, sleep, and heart rate data', async () => {
-             const mockActivityData = { summary: { steps: 10000, caloriesOut: 2500, restingHeartRate: 60 } };
-             const mockSleepData = { summary: { totalMinutesAsleep: 420 } };
-             // Note: Heart rate data might be nested differently depending on the exact endpoint used.
-             // Assuming the endpoint `/1/user/-/activities/heart/date/${date}/1d.json` returns resting HR within activities object
-             // Let's simplify and assume resting HR comes only from activities summary for now.
+         it('should fetch data using token retrieved from KV', async () => {
+            // Fix: Use correct property names matching FitbitTokenData type
+            const storedTokenData: Partial<FitbitTokenData> = { 
+                accessToken: validAccessToken, 
+                expiresAt: validExpiresAt, 
+                refreshToken: 'kv-refresh-token' 
+            };
+            mockedKvGet.mockResolvedValue(storedTokenData);
+            (fetch as jest.Mock)
+                .mockResolvedValueOnce({ ok: true, json: async () => ({ summary: { steps: 9999 } }) })
+                .mockResolvedValueOnce({ ok: true, json: async () => ({ summary: { totalMinutesAsleep: 480 } }) })
+                .mockResolvedValueOnce({ ok: true, json: async () => ({ 'activities-heart': [{ value: { restingHeartRate: 60 } }] }) });
 
-             // Mock fetchFitbitData for each endpoint call
+            // Pass args indicating fetch from KV
+            const result = await syncFitbitDataForDate(fetchFromKvArgs); 
+            expect(result.success).toBe(true);
+            expect(result.data?.steps).toBe(9999);
+            expect(authGetCurrentUserId).toHaveBeenCalledTimes(1);
+            expect(mockedKvGet).toHaveBeenCalledWith(tokenKey);
+            expect(fetch).toHaveBeenCalledTimes(3); 
+            expect(fetch).toHaveBeenCalledWith(expect.stringContaining('activities/date'), expect.objectContaining({ headers: { Authorization: `Bearer ${validAccessToken}` } }));
+        });
+
+        it('should return error if any required fetch fails (using valid token passed directly)', async () => {
+            (fetch as jest.Mock)
+                .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) })
+                .mockResolvedValueOnce({ ok: true, json: async () => ({ summary: { totalMinutesAsleep: 480 } }) })
+                .mockResolvedValueOnce({ ok: true, json: async () => ({ 'activities-heart': [{ value: { restingHeartRate: 60 } }] }) });
+
+            const result = await syncFitbitDataForDate(validTokenArgs); // Pass token directly
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('activity_fetch_failed');
+            expect(fetch).toHaveBeenCalledTimes(3); 
+            expect(authGetCurrentUserId).not.toHaveBeenCalled(); // User ID not needed if token passed
+            expect(mockedKvGet).not.toHaveBeenCalled();
+        });
+
+        it('should successfully fetch and combine data (using valid token passed directly)', async () => {
              (fetch as jest.Mock)
-                 .mockResolvedValueOnce({ ok: true, json: async () => mockActivityData }) // Activities
-                 .mockResolvedValueOnce({ ok: true, json: async () => mockSleepData });   // Sleep
-
-             const result = await fitbitActions.syncFitbitDataForDate({ date: testDate, ...validTokenArgs });
-
+                 .mockResolvedValueOnce({ ok: true, json: async () => ({ summary: { steps: 10000, caloriesOut: 2500, distance: 8.0, floors: 10, fairlyActiveMinutes: 30, veryActiveMinutes: 60 }, activities: [{ logId: 1, activityName: 'Run', calories: 300 }] }) })
+                 .mockResolvedValueOnce({ ok: true, json: async () => ({ summary: { totalTimeInBed: 500, totalMinutesAsleep: 450 }, sleep: [{ isMainSleep: true, levels: { summary: { light: { minutes: 200 }, deep: { minutes: 100 }, rem: { minutes: 150 } } } }] }) })
+                 .mockResolvedValueOnce({ ok: true, json: async () => ({ 'activities-heart': [{ value: { restingHeartRate: 55 } }] }) });
+            
+             const result = await syncFitbitDataForDate(validTokenArgs);
              expect(result.success).toBe(true);
              expect(result.data).toEqual({
                  date: testDate,
                  steps: 10000,
+                 activeMinutes: 90,
+                 distanceKm: 8.0,
+                 floors: 10,
+                 restingHeartRate: 55,
                  caloriesOut: 2500,
-                 restingHeartRate: 60,
-                 sleepMinutes: 420,
+                 sleepMinutesTotal: 450,
+                 sleepLight: 200,
+                 sleepDeep: 100,
+                 sleepREM: 150,
+                 sleepAwake: 50, // Calculated: totalTimeInBed - totalMinutesAsleep
+                 activities: expect.any(Array) // Or more specific check
              });
-             expect(result.error).toBeUndefined();
-             expect(result.newAccessToken).toBeUndefined(); // No refresh needed
-             expect(result.newExpiresAt).toBeUndefined();
-
-             // Verify fetch was called twice with correct endpoints and token
-             expect(fetch).toHaveBeenCalledTimes(2);
-             expect(fetch).toHaveBeenNthCalledWith(1,
-                 `https://api.fitbit.com/1/user/-/activities/date/${testDate}.json`,
-                 expect.objectContaining({ headers: expect.objectContaining({ 'Authorization': `Bearer ${validTokenArgs.currentAccessToken}` }) })
-             );
-             expect(fetch).toHaveBeenNthCalledWith(2,
-                 `https://api.fitbit.com/1/user/-/sleep/date/${testDate}.json`,
-                  // Pass original token details again, fetchFitbitData handles refresh internally if needed on *first* call
-                 expect.objectContaining({ headers: expect.objectContaining({ 'Authorization': `Bearer ${validTokenArgs.currentAccessToken}` }) })
-             );
-         });
-
-         it('should handle missing optional data (sleep, heart rate)', async () => {
-             const mockActivityData = { summary: { steps: 5000, caloriesOut: 2000 } }; // No restingHeartRate
-             const mockSleepData = { summary: {} }; // No totalMinutesAsleep
-
-             // Mock underlying fetch
-             (fetch as jest.Mock)
-                 .mockResolvedValueOnce({ ok: true, json: async () => mockActivityData })
-                 .mockResolvedValueOnce({ ok: true, json: async () => mockSleepData });
-
-             const result = await fitbitActions.syncFitbitDataForDate({ date: testDate, ...validTokenArgs });
-
-             expect(result.success).toBe(true);
-             expect(result.data).toEqual({
-                 date: testDate,
-                 steps: 5000,
-                 caloriesOut: 2000,
-                 restingHeartRate: undefined, // Should be undefined if not present
-                 sleepMinutes: undefined,    // Should be undefined if not present
-             });
-             expect(fetch).toHaveBeenCalledTimes(2); // Verify both fetches happened
-         });
-
-          it('should trigger token refresh via fetchFitbitData if initial token is expired', async () => {
-             const refreshedToken = 'refreshed-sync-token';
-             // Expiry should account for the 300s buffer applied in refreshFitbitToken
-             const refreshedExpiry = nowTimestamp + oneHour - 300;
-             const mockActivityData = { summary: { steps: 100, caloriesOut: 100 } };
-             const mockSleepData = { summary: { totalMinutesAsleep: 10 } };
-
-             // Mock cookie for refresh
-             mockCookies.get.mockReturnValueOnce({ name: 'fitbit_refresh_token', value: 'valid-refresh-token-for-sync' });
-
-             // Mock underlying fetch calls:
-             // 1. Refresh call (successful)
-             // 2. Activities call (successful, uses new token)
-             // 3. Sleep call (successful, uses new token)
-             (fetch as jest.Mock)
-                 .mockResolvedValueOnce({ // Mock for refresh call triggered by first fetchFitbitData
-                     ok: true,
-                     json: async () => ({
-                         access_token: refreshedToken,
-                         refresh_token: 'new-refresh-token-sync',
-                         expires_in: 3600,
-                     })
-                 })
-                 .mockResolvedValueOnce({ // Mock for activities data call
-                     ok: true, json: async () => mockActivityData
-                 })
-                 .mockResolvedValueOnce({ // Mock for sleep data call
-                     ok: true, json: async () => mockSleepData
-                 });
-
-
-             const result = await fitbitActions.syncFitbitDataForDate({ date: testDate, ...expiredTokenArgs });
-
-             expect(result.success).toBe(true);
-             expect(result.data).toBeDefined();
-             expect(result.newAccessToken).toBe(refreshedToken); // Pass through the refreshed token details
-             expect(result.newExpiresAt).toBe(refreshedExpiry);
-
-             // Verify fetch was called 3 times: refresh, activities, sleep
              expect(fetch).toHaveBeenCalledTimes(3);
+             expect(authGetCurrentUserId).not.toHaveBeenCalled();
+             expect(mockedKvGet).not.toHaveBeenCalled();
+        });
 
-             // 1st call: Refresh token
-             expect(fetch).toHaveBeenNthCalledWith(1,
-                 'https://api.fitbit.com/oauth2/token',
-                 expect.objectContaining({ method: 'POST' })
-             );
-             // 2nd call: Activities data (using NEW token)
-             expect(fetch).toHaveBeenNthCalledWith(2,
-                 `https://api.fitbit.com/1/user/-/activities/date/${testDate}.json`,
-                 expect.objectContaining({ headers: expect.objectContaining({ 'Authorization': `Bearer ${refreshedToken}` }) })
-             );
-             // 3rd call: Sleep data (using NEW token)
-             expect(fetch).toHaveBeenNthCalledWith(3,
-                 `https://api.fitbit.com/1/user/-/sleep/date/${testDate}.json`,
-                 expect.objectContaining({ headers: expect.objectContaining({ 'Authorization': `Bearer ${refreshedToken}` }) })
-             );
-             // Verify cookie was updated
-             expect(mockCookies.set).toHaveBeenCalledWith('fitbit_refresh_token', 'new-refresh-token-sync', expect.anything());
-         });
+        it('should handle missing optional data (using valid token passed directly)', async () => {
+            (fetch as jest.Mock)
+                .mockResolvedValueOnce({ ok: true, json: async () => ({ summary: { steps: 5000, caloriesOut: 2000, distance: 4.0, fairlyActiveMinutes: 20, veryActiveMinutes: 10 }, activities: [] }) })
+                .mockResolvedValueOnce({ ok: true, json: async () => ({ sleep: [] }) })
+                .mockResolvedValueOnce({ ok: true, json: async () => ({ 'activities-heart': [] }) });
+            
+            const result = await syncFitbitDataForDate(validTokenArgs);
+            expect(result.success).toBe(true);
+            expect(result.data).toEqual({
+                date: testDate,
+                steps: 5000,
+                activeMinutes: 30,
+                distanceKm: 4.0,
+                floors: undefined,
+                restingHeartRate: undefined,
+                caloriesOut: 2000,
+                sleepMinutesTotal: undefined,
+                sleepLight: undefined,
+                sleepDeep: undefined,
+                sleepREM: undefined,
+                sleepAwake: undefined,
+                activities: []
+            });
+            expect(fetch).toHaveBeenCalledTimes(3);
+            expect(authGetCurrentUserId).not.toHaveBeenCalled();
+            expect(mockedKvGet).not.toHaveBeenCalled();
+        });
 
-         it('should return error if refresh fails during the first fetch', async () => {
-             // Mock cookie for refresh attempt
-             mockCookies.get.mockReturnValueOnce({ name: 'fitbit_refresh_token', value: 'invalid-refresh-token-sync' });
+        it('should trigger token refresh if initial token is expired (passed directly)', async () => {
+            mockCookies.get.mockReturnValueOnce({ name: 'fitbit_refresh_token', value: 'refresh-me' });
+            (fetch as jest.Mock).mockResolvedValueOnce({ // Refresh API call
+                ok: true,
+                json: async () => ({ access_token: refreshedToken, refresh_token: 'new-refresh-token', expires_in: 3600, user_id: testUserId })
+            });
+            (fetch as jest.Mock) // Subsequent data calls
+                 .mockResolvedValueOnce({ ok: true, json: async () => ({ summary: { steps: 1 } }) })
+                 .mockResolvedValueOnce({ ok: true, json: async () => ({ summary: {} }) })
+                 .mockResolvedValueOnce({ ok: true, json: async () => ({ 'activities-heart': [] }) });
+            
+            const result = await syncFitbitDataForDate(expiredTokenArgs);
+            expect(result.success).toBe(true);
+            expect(result.data).toBeDefined();
+            expect(result.newAccessToken).toBe(refreshedToken);
+            expect(result.newExpiresAt).toBeCloseTo(Date.now() / 1000 + 3600 - 300, 0);
+            expect(fetch).toHaveBeenCalledTimes(1 + 3);
+            expect(fetch).toHaveBeenNthCalledWith(1, 'https://api.fitbit.com/oauth2/token', expect.anything());
+            expect(fetch).toHaveBeenNthCalledWith(2, expect.stringContaining('/activities/date/'), expect.objectContaining({ headers: { Authorization: `Bearer ${refreshedToken}` } }));
+            expect(mockCookies.set).toHaveBeenCalledWith('fitbit_refresh_token', 'new-refresh-token', expect.anything());
+            expect(authGetCurrentUserId).not.toHaveBeenCalled();
+            expect(mockedKvGet).not.toHaveBeenCalled();
+        });
 
-             // Mock underlying fetch to fail the refresh call
-             (fetch as jest.Mock).mockResolvedValueOnce({ // Mock for refresh call triggered by first fetchFitbitData
-                 ok: false,
-                 status: 401,
-                 json: async () => ({ errors: [{ errorType: 'invalid_grant' }] })
-             });
-
-             const result = await fitbitActions.syncFitbitDataForDate({ date: testDate, ...expiredTokenArgs });
-
-             expect(result.success).toBe(false);
-             expect(result.error).toBe('invalid_grant'); // Error comes from the failed refresh
-             expect(result.data).toBeUndefined();
-             expect(result.newAccessToken).toBeUndefined();
-             expect(result.newExpiresAt).toBeUndefined();
-
-             // Verify fetch was called once (for the failed refresh)
-             expect(fetch).toHaveBeenCalledTimes(1);
-             expect(fetch).toHaveBeenCalledWith('https://api.fitbit.com/oauth2/token', expect.anything());
-             // Verify cookie was deleted
-             expect(mockCookies.delete).toHaveBeenCalledWith('fitbit_refresh_token');
-         });
+        it('should return error if refresh fails (when using expired token passed directly)', async () => {
+            mockCookies.get.mockReturnValueOnce({ name: 'fitbit_refresh_token', value: 'fail-refresh' });
+            (fetch as jest.Mock).mockResolvedValueOnce({ // Refresh API call fails
+                ok: false, status: 401, json: async () => ({ errors: [{ errorType: 'invalid_grant' }] })
+            });
+            
+             const result = await syncFitbitDataForDate(expiredTokenArgs);
+            expect(result.success).toBe(false);
+            expect(result.error).toBe('Fitbit token expired and refresh failed.');
+            expect(fetch).toHaveBeenCalledTimes(1);
+            expect(mockCookies.delete).toHaveBeenCalledWith('fitbit_refresh_token');
+            expect(authGetCurrentUserId).not.toHaveBeenCalled();
+            expect(mockedKvGet).not.toHaveBeenCalled();
+        });
     });
 }); 

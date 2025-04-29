@@ -37,6 +37,8 @@ This project aims to follow the specifications outlined in [`Technical-Specifica
 *   **Project Setup:** Next.js **App Router**, TypeScript, Tailwind, ESLint.
 *   **Authentication (NextAuth.js v5):** Core setup, Google/GitHub/Credentials providers, **Vercel KV** session storage, API route, `getCurrentUserId` util.
     *   **Deviation:** Uses NextAuth.js v5. Spec didn't detail auth implementation. KV is used for sessions.
+    *   **Authentication UI components:** `SignInButton`, `SignOutButton`, and `AuthButtons` components implemented and integrated into Header.
+    *   **Route Protection:** Core application routes protected via NextAuth.js middleware.
 *   **Data Types:** Core interfaces defined (`src/types/index.ts`).
     *   **Deviation:** Some fields differ slightly from Spec Section 7. Store-specific types added.
 *   **State Management (Zustand + IndexedDB):** Core stores implemented with `idbStorage` middleware (`userProfileStore`, `metricsStore`, `activityStore`, `offlineQueueStore`, `plannerStore`, `nutritionStore`).
@@ -49,6 +51,7 @@ This project aims to follow the specifications outlined in [`Technical-Specifica
 *   **Nutrition (`/nutrition`):** Implemented (Spec Feature 4.5).
 *   **Planner (`/planner`):** Basic implementation. Workout duration adjustment added.
     *   **Deviation:** Full dynamic/adaptive plan generation is **missing** (Spec Feature 4.3, Algorithm 8.4).
+    *   **Adaptive Logic:** Initial implementation of adaptive planner logic that considers previous week's completion rate and adjusts workout templates and durations accordingly. Multiple plan storage added.
 *   **Workout Logging:** Added `WorkoutDetailsModal`.
 *   **Goal Engine:** UI in Settings and calculation functions implemented (Spec Feature 4.2).
 *   **Knowledge Base (`/knowledge`):** Implemented (Spec Feature 4.7).
@@ -70,13 +73,10 @@ This project aims to follow the specifications outlined in [`Technical-Specifica
 
 *   **Authentication:**
     *   **Credentials provider uses placeholder `authorize` logic.** Needs secure implementation.
-    *   **UI integration missing** (Sign-in/out buttons, session display).
-    *   **Page/route protection not implemented.**
     *   OAuth provider setup (callback URLs) must be completed in Google/GitHub dev consoles.
 *   **Fitbit Integration:** Frontend sync trigger and data usage logic are **missing**.
 *   **Notifications:** Reminder **trigger logic missing**. End-to-end push delivery needs verification.
 *   **Offline Sync Manager:** Uses **simulated backend calls**. Lacks robust error handling/retries.
-*   **Planner:** Lacks **fully adaptive plan generation** algorithm.
 *   **Testing:** **Component tests** and **E2E tests (Cypress)** are **missing**. **NextAuth API route tests** are **missing**. (See `tests.md`).
 *   **Layout (`layout.tsx`):** Potential lingering type issues with `BeforeInstallPromptEvent`.
 
@@ -86,8 +86,6 @@ This project aims to follow the specifications outlined in [`Technical-Specifica
 
 1.  **Authentication (Complete Implementation):**
     *   Implement **real `authorize` function** for Credentials provider.
-    *   Integrate **Sign-in/Sign-out UI**.
-    *   Implement **page/route protection** (Middleware/`auth()`).
     *   Set up **OAuth callback URLs** in dev consoles.
     *   _Test Coverage:_ Need tests for NextAuth API route, `authorize` logic, related UI.
 2.  **Fitbit Integration (Complete - Spec 4.12, 8A, 17.v1.1):**
@@ -95,8 +93,8 @@ This project aims to follow the specifications outlined in [`Technical-Specifica
     *   Integrate fetched data into stores & **auto-adjust calorie targets**.
     *   _Test Coverage:_ Expand tests for stores, callback API route, related components.
 3.  **Planner Enhancements (Adaptive Logic - Spec 4.3, 8.4):**
-    *   Implement the core adaptive algorithm.
-    *   _Test Coverage:_ Need more comprehensive tests for `generatePlan`.
+    *   Complete and refine the adaptive algorithm implementation.
+    *   _Test Coverage:_ Add comprehensive tests for the updated `generatePlan` functionality.
 4.  **Notifications (Trigger Logic & Verification):**
     *   Implement **reminder trigger logic** (e.g., scheduled function, cron).
     *   **Verify end-to-end push delivery** in various scenarios.

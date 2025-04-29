@@ -42,51 +42,88 @@ const isFatLossGoalActive = (profile?: UserProfile | null): boolean => {
 // Now accepts optional user profile data
 export const generateWeeklyPlan = (
     startDate: string, // Should be 'YYYY-MM-DD' format of a Monday
-    userProfile?: UserProfile | null // Optional user profile
+    userProfile?: UserProfile | null,
+    previousWeekPlan?: WeeklyPlan | null // Add previous week's plan
 ): WeeklyPlan => {
     const start = dayjs(startDate);
     const endDate = start.add(6, 'days').format('YYYY-MM-DD');
     const workouts: Workout[] = [];
 
-    // Determine which template to use
-    const templateToUse = userProfile?.backIssues ? backCareTemplate : defaultWeeklyTemplate;
+    // --- Plan Adaptation Logic --- 
+    let workoutsCompletedLastWeek = 0;
+    let coreWorkoutsMissedLastWeek = 0;
+    let climbWorkoutsMissedLastWeek = 0;
+    let swimWorkoutsMissedLastWeek = 0;
+    const totalWorkoutsPlannedLastWeek = previousWeekPlan?.workouts?.filter(w => w.type !== 'REST').length ?? 0;
 
-    // Shuffle the chosen template for variety
+    if (previousWeekPlan?.workouts) {
+        previousWeekPlan.workouts.forEach(workout => {
+            if (workout.type !== 'REST') {
+                if (workout.completedAt) {
+                    workoutsCompletedLastWeek++;
+                } else {
+                    // Track missed workouts by type
+                    if (workout.type === 'CORE') coreWorkoutsMissedLastWeek++;
+                    if (workout.type === 'CLIMB') climbWorkoutsMissedLastWeek++;
+                    if (workout.type === 'SWIM') swimWorkoutsMissedLastWeek++;
+                }
+            }
+        });
+    }
+    // Calculate completion rate (avoid division by zero)
+    const completionRate = totalWorkoutsPlannedLastWeek > 0 
+        ? workoutsCompletedLastWeek / totalWorkoutsPlannedLastWeek 
+        : 1; // Assume 100% if nothing was planned
+
+    // --- Select and Modify Template --- 
+    let templateToUse = userProfile?.backIssues ? backCareTemplate : defaultWeeklyTemplate;
+
+    // Basic Adaptation Rule: If many workouts were missed, add more rest/mobility
+    // Example: If < 50% completion rate or multiple CORE workouts missed, maybe force back care
+    if (completionRate < 0.5 || coreWorkoutsMissedLastWeek >= 2) {
+        console.log('[generatePlan] Low completion or missed core last week, prioritizing back care/rest.');
+        // Simple approach: Use backCareTemplate or even consider adding an extra REST/MOBILITY day
+        // For now, just switch to backCareTemplate if not already selected
+        if (!userProfile?.backIssues) {
+             templateToUse = backCareTemplate;
+        }
+        // More complex logic could replace a missed type with REST/MOBILITY
+    }
+
     const shuffledTypes = shuffleArray([...templateToUse]);
 
-    // Check if fat loss goal is active
+    // --- Calculate Durations with Adaptation --- 
     const fatLossActive = isFatLossGoalActive(userProfile);
+    const increaseDurationFactor = completionRate >= 0.85 ? 1.1 : 1.0; // Increase duration by 10% if completion was good
+    const decreaseDurationFactor = completionRate < 0.5 ? 0.9 : 1.0; // Decrease duration by 10% if completion was poor
 
-    // Create workout objects for each day
+    // --- Create Workout Objects --- 
     for (let i = 0; i < 7; i++) {
         const currentDate = start.add(i, 'day').format('YYYY-MM-DD');
         const workoutType = shuffledTypes[i];
+        let baseDuration = BASE_DURATIONS[workoutType];
+        let adjustedDuration = baseDuration;
 
-        // Assign duration: Base duration + adjustment for fat loss goal
-        let durationMin = BASE_DURATIONS[workoutType];
-        
-        if (fatLossActive) {
-            // Increase duration for calorie-burning activities
-            if (workoutType === 'CLIMB') {
-                durationMin += 15; // e.g., 90 -> 105
-            } else if (workoutType === 'SWIM') {
-                durationMin += 15; // e.g., 45 -> 60
-            }
-             // Optionally adjust CORE/STRENGTH slightly too, or leave as is
-             // else if (workoutType === 'CORE') {
-             //    durationMin += 5;
-             // }
+        // 1. Adjust for Fat Loss Goal
+        if (fatLossActive && (workoutType === 'CLIMB' || workoutType === 'SWIM')) {
+            adjustedDuration += 15; // Add flat 15 mins
         }
+
+        // 2. Adjust for Last Week's Completion Rate (Progressive Overload/Reduction)
+        adjustedDuration = Math.round(adjustedDuration * increaseDurationFactor * decreaseDurationFactor);
+        
+        // Ensure duration doesn't go below a minimum (e.g., 5 mins) or become excessive
+        adjustedDuration = Math.max(5, adjustedDuration); 
+        // Could add a Math.min cap as well if needed
 
         const workout: Workout = {
             id: uuidv4(),
             type: workoutType,
-            plannedAt: currentDate, // Assign to the specific day
-            durationMin: durationMin,
-            completedAt: undefined, // Mark as not completed initially
+            plannedAt: currentDate, 
+            durationMin: adjustedDuration, // Use the adapted duration
+            completedAt: undefined, 
             notes: undefined,
             performanceRating: undefined,
-            // mediaIds: undefined // Placeholder for future media integration
         };
         workouts.push(workout);
     }

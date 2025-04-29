@@ -1,6 +1,7 @@
 import { usePlannerStore } from './plannerStore';
 import { useOfflineQueueStore } from './offlineQueueStore';
 import { WeeklyPlan, Workout } from '@/types';
+import dayjs from 'dayjs'; // Import dayjs if not already
 
 // Mock the offline queue store
 jest.mock('./offlineQueueStore', () => ({
@@ -18,9 +19,9 @@ jest.mock('./offlineQueueStore', () => ({
 jest.mock('@/features/planner/utils/generatePlan', () => ({
   generateWeeklyPlan: jest.fn((startDate) => ({
     startDate,
-    endDate: 'mockEndDate', // Provide a mock end date
+    endDate: dayjs(startDate).add(6, 'day').format('YYYY-MM-DD'), // Use dayjs for endDate
     workouts: [
-        { id: 'workout-1', type: 'CLIMB', plannedAt: startDate, durationMin: 60 },
+        { id: 'workout-1', type: 'CLIMB', plannedAt: startDate, durationMin: 60, completedAt: undefined, performanceNotes: undefined }, // Add missing fields
         // Add more mock workouts if needed
     ] as Workout[],
   })),
@@ -38,17 +39,18 @@ describe('Planner Store', () => {
       addAction: mockAddAction,
     });
     // Reset mocks for generatePlan if needed
-    jest.clearAllMocks(); 
+    jest.clearAllMocks();
   });
 
   it('should mark workout complete optimistically when online', async () => {
-    // Arrange: Set up initial state with a plan
+    // Arrange: Set up initial state with a plan in the 'plans' record
+    const planStartDate = '2024-01-01';
     const initialPlan: WeeklyPlan = {
-      startDate: '2024-01-01',
+      startDate: planStartDate,
       endDate: '2024-01-07',
-      workouts: [{ id: 'w1', type: 'CORE', plannedAt: '2024-01-01T10:00:00Z', durationMin: 30 }],
+      workouts: [{ id: 'w1', type: 'CORE', plannedAt: '2024-01-01', durationMin: 30, completedAt: undefined, performanceNotes: undefined }], // Ensure plannedAt is just date
     };
-    usePlannerStore.setState({ currentPlan: initialPlan });
+    usePlannerStore.setState({ plans: { [planStartDate]: initialPlan } });
     const completionData = { completedAt: new Date().toISOString(), performanceNotes: 'Good session' };
 
     // Mock navigator.onLine to be true
@@ -58,7 +60,7 @@ describe('Planner Store', () => {
     await usePlannerStore.getState().markWorkoutComplete('w1', completionData);
 
     // Assert: Check optimistic update
-    const updatedPlan = usePlannerStore.getState().currentPlan;
+    const updatedPlan = usePlannerStore.getState().plans[planStartDate]; // Access via plans record
     const updatedWorkout = updatedPlan?.workouts.find(w => w.id === 'w1');
     expect(updatedWorkout).toBeDefined();
     expect(updatedWorkout?.completedAt).toEqual(completionData.completedAt);
@@ -70,12 +72,13 @@ describe('Planner Store', () => {
 
   it('should queue workout completion when offline', async () => {
     // Arrange
+    const planStartDate = '2024-01-01';
     const initialPlan: WeeklyPlan = {
-      startDate: '2024-01-01',
+      startDate: planStartDate,
       endDate: '2024-01-07',
-      workouts: [{ id: 'w2', type: 'SWIM', plannedAt: '2024-01-02T12:00:00Z', durationMin: 45 }],
+      workouts: [{ id: 'w2', type: 'SWIM', plannedAt: '2024-01-02', durationMin: 45, completedAt: undefined, performanceNotes: undefined }], // Ensure plannedAt is just date
     };
-    usePlannerStore.setState({ currentPlan: initialPlan });
+    usePlannerStore.setState({ plans: { [planStartDate]: initialPlan } });
     const completionData = { completedAt: new Date().toISOString() };
 
     // Mock navigator.onLine to be false
@@ -85,7 +88,9 @@ describe('Planner Store', () => {
     await usePlannerStore.getState().markWorkoutComplete('w2', completionData);
 
     // Assert: Check optimistic update (should still happen)
-    const updatedWorkout = usePlannerStore.getState().currentPlan?.workouts.find(w => w.id === 'w2');
+    const updatedPlan = usePlannerStore.getState().plans[planStartDate]; // Access via plans record
+    const updatedWorkout = updatedPlan?.workouts.find(w => w.id === 'w2');
+    expect(updatedWorkout).toBeDefined(); // Check if workout exists first
     expect(updatedWorkout?.completedAt).toEqual(completionData.completedAt);
 
     // Assert: Check that offline queue WAS called
@@ -98,13 +103,14 @@ describe('Planner Store', () => {
 
   it('should queue workout completion if online sync fails', async () => {
     // Arrange
+    const planStartDate = '2024-01-01';
     const failWorkoutId = 'fail-sync'; // Use the specific ID that triggers failure
     const initialPlan: WeeklyPlan = {
-      startDate: '2024-01-01',
+      startDate: planStartDate,
       endDate: '2024-01-07',
-      workouts: [{ id: failWorkoutId, type: 'CLIMB', plannedAt: '2024-01-03T18:00:00Z', durationMin: 90 }],
+      workouts: [{ id: failWorkoutId, type: 'CLIMB', plannedAt: '2024-01-03', durationMin: 90, completedAt: undefined, performanceNotes: undefined }], // Ensure plannedAt is just date
     };
-    usePlannerStore.setState({ currentPlan: initialPlan });
+    usePlannerStore.setState({ plans: { [planStartDate]: initialPlan } });
     const completionData = { completedAt: new Date().toISOString(), actualDurationMin: 85 };
 
     // Mock navigator.onLine to be true
@@ -114,7 +120,9 @@ describe('Planner Store', () => {
     await usePlannerStore.getState().markWorkoutComplete(failWorkoutId, completionData);
 
     // Assert: Optimistic update still happened
-    const updatedWorkout = usePlannerStore.getState().currentPlan?.workouts.find(w => w.id === failWorkoutId);
+    const updatedPlan = usePlannerStore.getState().plans[planStartDate]; // Access via plans record
+    const updatedWorkout = updatedPlan?.workouts.find(w => w.id === failWorkoutId);
+    expect(updatedWorkout).toBeDefined(); // Check if workout exists first
     expect(updatedWorkout?.completedAt).toEqual(completionData.completedAt);
 
     // Assert: Offline queue WAS called due to the simulated failure
