@@ -47,16 +47,34 @@ async function getWorkoutsNeedingReminders(withinMinutes: number = 35): Promise<
     console.log('[Notifications Trigger] Fetching workouts needing reminders (PLACEHOLDER DATA).');
     const now = new Date();
     const cutoff = new Date(now.getTime() + withinMinutes * 60000);
+    
+    // --- Attempt to get current user ID for testing --- 
+    let currentUserId = 'MOCK_USER_FOR_REMINDER'; // Default mock ID
+    try {
+        const userId = await getCurrentUserId(); // Use the actual auth function
+        if (userId) {
+            currentUserId = userId;
+            console.log(`[Notifications Trigger] Using current user ID for mock reminder: ${currentUserId}`);
+        } else {
+             console.log(`[Notifications Trigger] No current user found, using default mock ID.`);
+        }
+    } catch (authError) {
+        console.error("[Notifications Trigger] Error getting current user ID:", authError);
+    }
+    // --- End attempt ---
 
     // Replace with actual query to your database/data source for planned workouts
     const MOCK_PLANNED_WORKOUTS: PlannedWorkout[] = [
-        { userId: 'USER_123', workoutType: 'CORE', plannedAt: new Date(now.getTime() + 30 * 60000).toISOString() },
-        { userId: 'USER_456', workoutType: 'SWIM', plannedAt: new Date(now.getTime() + 15 * 60000).toISOString() },
-        { userId: 'USER_123', workoutType: 'CLIMB', plannedAt: new Date(now.getTime() + 60 * 60000).toISOString() }, // Too far away
+        // Add a workout for the current/mock user starting in 15 minutes
+        { userId: currentUserId, workoutType: 'TEST_REMINDER_CORE', plannedAt: new Date(now.getTime() + 15 * 60000).toISOString() },
+        // Keep other mock workouts for different users
+        { userId: 'OTHER_USER_456', workoutType: 'SWIM', plannedAt: new Date(now.getTime() + 20 * 60000).toISOString() },
+        { userId: 'USER_789', workoutType: 'CLIMB', plannedAt: new Date(now.getTime() + 60 * 60000).toISOString() }, // Too far away
     ];
 
     return MOCK_PLANNED_WORKOUTS.filter(workout => {
         const plannedTime = new Date(workout.plannedAt);
+        // Reminder if planned between now and cutoff time
         return plannedTime > now && plannedTime <= cutoff;
     });
 }

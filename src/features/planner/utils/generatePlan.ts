@@ -20,7 +20,7 @@ const defaultWeeklyTemplate: WorkoutType[] = ['CLIMB', 'SWIM', 'CORE', 'CLIMB', 
 const backCareTemplate: WorkoutType[] = ['CLIMB', 'SWIM', 'MOBILITY', 'CLIMB', 'SWIM', 'CORE', 'REST']; // Replace one CORE with MOBILITY
 
 // Define base durations
-const BASE_DURATIONS: Record<WorkoutType, number> = {
+export const BASE_DURATIONS: Record<WorkoutType, number> = {
     CLIMB: 90,
     SWIM: 45,
     CORE: 30,
@@ -30,7 +30,7 @@ const BASE_DURATIONS: Record<WorkoutType, number> = {
 };
 
 // Function to determine if fat loss goal is active
-const isFatLossGoalActive = (profile?: UserProfile | null): boolean => {
+export const isFatLossGoalActive = (profile?: UserProfile | null): boolean => {
     return !!profile && 
            profile.targetBodyFatPct !== undefined && profile.targetBodyFatPct >= 0 && // Allow 0% target
            profile.targetDate !== undefined && 
@@ -73,14 +73,15 @@ export const generateWeeklyPlan = (
     // Calculate completion rate (avoid division by zero)
     const completionRate = totalWorkoutsPlannedLastWeek > 0 
         ? workoutsCompletedLastWeek / totalWorkoutsPlannedLastWeek 
-        : 1; // Assume 100% if nothing was planned
+        : null; // Set to null if no workouts last week
 
     // --- Select and Modify Template --- 
     let templateToUse = userProfile?.backIssues ? backCareTemplate : defaultWeeklyTemplate;
 
     // Basic Adaptation Rule: If many workouts were missed, add more rest/mobility
     // Example: If < 50% completion rate or multiple CORE workouts missed, maybe force back care
-    if (completionRate < 0.5 || coreWorkoutsMissedLastWeek >= 2) {
+    // Only apply this rule if we have a completion rate to evaluate
+    if (completionRate !== null && (completionRate < 0.5 || coreWorkoutsMissedLastWeek >= 2)) {
         console.log('[generatePlan] Low completion or missed core last week, prioritizing back care/rest.');
         // Simple approach: Use backCareTemplate or even consider adding an extra REST/MOBILITY day
         // For now, just switch to backCareTemplate if not already selected
@@ -94,8 +95,9 @@ export const generateWeeklyPlan = (
 
     // --- Calculate Durations with Adaptation --- 
     const fatLossActive = isFatLossGoalActive(userProfile);
-    const increaseDurationFactor = completionRate >= 0.85 ? 1.1 : 1.0; // Increase duration by 10% if completion was good
-    const decreaseDurationFactor = completionRate < 0.5 ? 0.9 : 1.0; // Decrease duration by 10% if completion was poor
+    // Default factors to 1.0 if completionRate is null (no previous plan)
+    const increaseDurationFactor = completionRate !== null && completionRate >= 0.85 ? 1.1 : 1.0; 
+    const decreaseDurationFactor = completionRate !== null && completionRate < 0.5 ? 0.9 : 1.0; 
 
     // --- Create Workout Objects --- 
     for (let i = 0; i < 7; i++) {

@@ -1,65 +1,101 @@
-import { useOfflineQueueStore } from "@/store/offlineQueueStore";
+import { useOfflineQueueStore, type QueuedAction } from "@/store/offlineQueueStore";
 import { usePlannerStore } from "@/store/plannerStore";
+
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 1000 * 10; // 10 seconds delay before retrying (can be adjusted)
 
 /**
  * Processes the offline action queue, attempting to sync actions with the backend.
  */
 export const processOfflineQueue = async () => {
-    const { getActions, removeAction } = useOfflineQueueStore.getState();
-    const actions = getActions();
-
-    if (actions.length === 0) {
+    // Get actions AND the setter to update metadata
+    const { pendingActions, removeAction, updateActionMetadata } = useOfflineQueueStore.getState();
+    
+    // Use pendingActions directly instead of getActions()
+    if (pendingActions.length === 0) {
         console.log("[Sync Manager] No actions in queue to process.");
         return;
     }
 
-    console.log(`[Sync Manager] Processing ${actions.length} actions...`);
+    console.log(`[Sync Manager] Processing ${pendingActions.length} actions...`);
+    const now = Date.now(); // Define now here
 
-    for (const action of actions) {
-        console.log(`[Sync Manager] Processing action: ${action.type} (ID: ${action.id})`);
+    for (const action of pendingActions) {
+        // Define variables inside the loop scope
+        const retryCount = action.metadata?.retryCount ?? 0;
+        const lastAttempt = action.metadata?.lastAttemptTimestamp ?? 0;
+        const failed = action.metadata?.failed ?? false;
+
+        // Skip actions marked as permanently failed or if retrying too soon
+        if (failed) {
+             console.log(`[Sync Manager] Skipping permanently failed action: ${action.type} (ID: ${action.id})`);
+             continue;
+        }
+        if (now < lastAttempt + RETRY_DELAY_MS && retryCount > 0) {
+            console.log(`[Sync Manager] Delaying retry for action ${action.id} (${action.type}). Last attempt: ${new Date(lastAttempt).toISOString()}`);
+            continue;
+        }
+
+        console.log(`[Sync Manager] Processing action: ${action.type} (ID: ${action.id}), Retry: ${retryCount}`);
         let success = false;
+        let errorInfo: any = null;
 
         try {
             switch (action.type) {
                 case 'planner/markComplete':
-                    // --- Backend Sync Placeholder --- 
-                    // In a real app, this would be an API call.
-                    // We simulate success/failure randomly for testing.
-                    // const response = await fetch('/api/planner/workout/complete', { 
-                    //     method: 'POST', 
-                    //     body: JSON.stringify(action.payload) // payload is { workoutId, completionData }
-                    // });
-                    // if (!response.ok) throw new Error('Backend sync failed for markComplete');
-                    await new Promise(resolve => setTimeout(resolve, 100)); // Simulate network delay
-                    if (Math.random() > 0.1) { // Simulate 90% success rate
-                        console.log(`[Sync Manager] Successfully synced action: ${action.type} (ID: ${action.id})`);
-                        success = true;
-                    } else {
-                         throw new Error('Simulated backend sync failure');
-                    }
-                    // --- End Backend Sync Placeholder ---
+                    console.warn(`[Sync Manager] Assuming success for action ${action.type} (ID: ${action.id}) - NO ACTUAL SYNC PERFORMED.`);
+                    await new Promise(resolve => setTimeout(resolve, 50)); 
+                    success = true;
                     break;
-                // Add cases for other action types here (e.g., 'nutrition/addMeal')
                 default:
-                    console.warn(`[Sync Manager] Unknown action type: ${action.type}`);
-                    // Should we remove unknown actions? For now, let's leave them.
-                    // success = true; // Or mark as failed?
+                    console.warn(`[Sync Manager] Unknown action type: ${action.type}. Marking as failed.`);
+                    errorInfo = { error: 'unknown_action_type', type: action.type };
+                    success = false; 
             }
 
             if (success) {
                 removeAction(action.id);
-                console.log(`[Sync Manager] Removed action ${action.id} from queue.`);
+                console.log(`[Sync Manager] Successfully processed and removed action ${action.id} from queue.`);
+            } else {
+                 throw errorInfo || new Error('Processing failed for unknown reason');
             }
         } catch (error) {
-            console.error(`[Sync Manager] Failed to process action ${action.id} (${action.type}):`, error);
-            // TODO: Implement retry logic or notify user
-            // For now, we just leave it in the queue for the next attempt.
+            // This catch block now has access to retryCount, now, MAX_RETRIES, updateActionMetadata
+            console.error(`[Sync Manager] Failed to process action ${action.id} (${action.type}), Retry: ${retryCount}. Error:`, error);
+            const nextRetryCount = retryCount + 1;
+            const isPermanentFailure = nextRetryCount > MAX_RETRIES;
+            
+            // Determine the error message to store
+            let errorMessage: string;
+            if (error && typeof error === 'object' && 'error' in error && error.error === 'unknown_action_type') {
+                 // Assert type for `error.type` access
+                errorMessage = `Unknown Action Type: ${(error as any).type}`;
+            } else if (error instanceof Error) {
+                 errorMessage = error.message;
+            } else {
+                 errorMessage = String(error);
+            }
+            
+            // Call updateActionMetadata (which is now in scope)
+            updateActionMetadata(action.id, {
+                 ...action.metadata,
+                 retryCount: nextRetryCount,
+                 lastAttemptTimestamp: now,
+                 failed: isPermanentFailure,
+                 error: errorMessage, 
+            });
+
+            if (isPermanentFailure) {
+                console.error(`[Sync Manager] Action ${action.id} (${action.type}) has failed permanently after ${MAX_RETRIES} retries.`);
+            } else {
+                 console.log(`[Sync Manager] Action ${action.id} (${action.type}) scheduled for retry ${nextRetryCount}/${MAX_RETRIES}.`);
+            }
         }
     }
 
-     console.log("[Sync Manager] Finished processing queue.");
-     // Check if queue is empty now
-     const remainingActions = useOfflineQueueStore.getState().getActions();
+     console.log("[Sync Manager] Finished processing queue run.");
+     // Use pendingActions directly
+     const remainingActions = useOfflineQueueStore.getState().pendingActions; 
      console.log(`[Sync Manager] Actions remaining in queue: ${remainingActions.length}`);
 };
 

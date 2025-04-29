@@ -84,7 +84,6 @@ const MetricCards: React.FC = () => {
             </Card>
 
              {/* Optional: Calories Out Card (Fitbit) */}
-             {/* 
              <Card>
                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                      <CardTitle className="text-sm font-medium">Calories Burned (Today)</CardTitle>
@@ -96,8 +95,7 @@ const MetricCards: React.FC = () => {
                      </div>
                      <p className="text-xs text-muted-foreground">{activityDate}</p>
                  </CardContent>
-             </Card> 
-             */}
+             </Card>
         </div>
     );
 };

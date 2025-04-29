@@ -20,15 +20,30 @@ const removeEventListenerSpy = jest.spyOn(window, 'removeEventListener');
 describe('Offline Sync Manager', () => {
     let mockGetActions: jest.Mock;
     let mockRemoveAction: jest.Mock;
+    let mockUpdateActionMetadata: jest.Mock;
+    let mockPendingActions: QueuedAction[];
 
     beforeEach(() => {
         // Reset mocks for offline store
-        mockGetActions = jest.fn();
-        mockRemoveAction = jest.fn();
-        (useOfflineQueueStore.getState as jest.Mock).mockReturnValue({
-            getActions: mockGetActions,
-            removeAction: mockRemoveAction,
+        mockPendingActions = []; // Start with empty queue
+        
+        mockGetActions = jest.fn(() => mockPendingActions); 
+        mockRemoveAction = jest.fn((id) => {
+            mockPendingActions = mockPendingActions.filter(a => a.id !== id);
         });
+        mockUpdateActionMetadata = jest.fn((id, metadata) => {
+             mockPendingActions = mockPendingActions.map(a => 
+                 a.id === id ? { ...a, metadata: { ...(a.metadata || {}), ...metadata } } : a
+             );
+        });
+        
+        // Ensure getState ALWAYS returns the CURRENT state of the mocks/array
+        (useOfflineQueueStore.getState as jest.Mock).mockImplementation(() => ({
+            pendingActions: mockPendingActions, 
+            getActions: mockGetActions, 
+            removeAction: mockRemoveAction,
+            updateActionMetadata: mockUpdateActionMetadata,
+        }));
 
         // Reset other mocks
         jest.clearAllMocks();
@@ -43,56 +58,101 @@ describe('Offline Sync Manager', () => {
 
     describe('processOfflineQueue', () => {
         it('should do nothing if the queue is empty', async () => {
-            mockGetActions.mockReturnValue([]);
+            mockPendingActions = []; 
+            // No need to update mock return value manually anymore
             await processOfflineQueue();
             expect(mockRemoveAction).not.toHaveBeenCalled();
         });
 
-        it('should process a planner/markComplete action successfully', async () => {
+        it('should process a planner/markComplete action successfully (assume success)', async () => {
             const action: QueuedAction = {
                 id: 'action-1',
                 type: 'planner/markComplete',
                 payload: { workoutId: 'w1', completionData: { notes: 'done' } },
-                timestamp: new Date().toISOString(), // Use ISOString for timestamp
+                timestamp: new Date().toISOString(),
             };
-            mockGetActions.mockReturnValue([action]);
-            jest.spyOn(Math, 'random').mockReturnValue(0.5); // Ensure success
-
+            mockPendingActions = [action];
+            // No need to update mock return value manually anymore
             await processOfflineQueue();
 
             expect(mockRemoveAction).toHaveBeenCalledTimes(1);
             expect(mockRemoveAction).toHaveBeenCalledWith('action-1');
+            expect(mockPendingActions.length).toBe(0);
         });
 
-        it('should leave action in queue if processing fails (simulated)', async () => {
-            const action: QueuedAction = {
-                id: 'action-2',
-                type: 'planner/markComplete',
-                payload: { workoutId: 'w2', completionData: {} },
-                timestamp: new Date().toISOString(), // Use ISOString for timestamp
-            };
-            mockGetActions.mockReturnValue([action]);
-            jest.spyOn(Math, 'random').mockReturnValue(0.05); // Ensure failure
-
-            await processOfflineQueue();
-
-            expect(mockRemoveAction).not.toHaveBeenCalled();
-            // Optionally check console.error was called (requires mocking console)
-        });
-
-         it('should handle unknown action types gracefully', async () => {
+        it('should handle unknown action types by marking as failed', async () => {
             const action: QueuedAction = {
                 id: 'action-3',
-                type: 'unknown/actionType' as any, // Cast to allow unknown type
+                type: 'unknown/actionType' as any, 
                 payload: {},
-                timestamp: new Date().toISOString(), // Use ISOString for timestamp
+                timestamp: new Date().toISOString(),
             };
-            mockGetActions.mockReturnValue([action]);
-
+            mockPendingActions = [action]; 
+            // No need to update mock return value manually anymore
             await processOfflineQueue();
 
             expect(mockRemoveAction).not.toHaveBeenCalled();
-            // Optionally check console.warn was called
+            expect(mockUpdateActionMetadata).toHaveBeenCalledTimes(1);
+            expect(mockUpdateActionMetadata).toHaveBeenCalledWith('action-3', expect.objectContaining({ 
+                retryCount: 1, 
+                failed: false, 
+                error: 'Unknown Action Type: unknown/actionType', 
+                lastAttemptTimestamp: expect.any(Number),
+            }));
+            expect(mockPendingActions.length).toBe(1);
+            expect(mockPendingActions[0].metadata?.failed).toBe(false);
+            expect(mockPendingActions[0].metadata?.retryCount).toBe(1);
+        });
+        
+        it('should eventually mark an action as permanently failed after MAX_RETRIES', async () => {
+             const action: QueuedAction = {
+                id: 'action-fail',
+                type: 'unknown/actionType' as any, 
+                payload: {},
+                timestamp: new Date().toISOString(),
+                metadata: { retryCount: 3 } // Start at retry 3
+            };
+            mockPendingActions = [action]; 
+            // No need to update mock return value manually anymore
+            
+            await processOfflineQueue(); // This is the 4th attempt
+
+            expect(mockRemoveAction).not.toHaveBeenCalled();
+            expect(mockUpdateActionMetadata).toHaveBeenCalledTimes(1);
+            expect(mockUpdateActionMetadata).toHaveBeenCalledWith('action-fail', expect.objectContaining({ 
+                retryCount: 4, 
+                failed: true, 
+                error: 'Unknown Action Type: unknown/actionType', 
+                lastAttemptTimestamp: expect.any(Number),
+            }));
+             expect(mockPendingActions.length).toBe(1);
+             expect(mockPendingActions[0].metadata?.failed).toBe(true); // Check state IS updated
+             expect(mockPendingActions[0].metadata?.retryCount).toBe(4);
+             
+             // Run again - should be skipped because mockPendingActions[0].metadata.failed is now true
+             mockUpdateActionMetadata.mockClear(); 
+             await processOfflineQueue();
+             expect(mockUpdateActionMetadata).not.toHaveBeenCalled(); // Should have been skipped
+        });
+        
+        it('should skip retry if RETRY_DELAY has not passed', async () => {
+            const mockNow = Date.now();
+            const lastAttempt = mockNow - 5000; // 5 seconds ago
+             const action: QueuedAction = {
+                id: 'action-delay',
+                type: 'unknown/actionType' as any, 
+                payload: {},
+                timestamp: new Date().toISOString(),
+                metadata: { retryCount: 1, lastAttemptTimestamp: lastAttempt } 
+            };
+            mockPendingActions = [action]; 
+            // No need to update mock return value manually anymore
+            
+            jest.spyOn(Date, 'now').mockReturnValue(mockNow);
+            await processOfflineQueue();
+            expect(mockRemoveAction).not.toHaveBeenCalled();
+            expect(mockUpdateActionMetadata).not.toHaveBeenCalled();
+            jest.spyOn(Date, 'now').mockRestore();
         });
     });
 

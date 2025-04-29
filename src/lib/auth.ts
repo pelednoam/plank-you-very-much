@@ -1,15 +1,21 @@
-import { auth } from "@/../auth"; // Corrected path to root auth.ts
+import { auth } from "@/../auth"; // Path to root auth.ts
 
 /**
- * Placeholder function to get the current user's ID.
- * Replace with actual logic using NextAuth.js session.
+ * Gets the current user ID from the session.
+ * Returns the user ID string if authenticated, or null if not.
+ * Throws an error only if there's an unexpected issue retrieving the session.
  */
 export const getCurrentUserId = async (): Promise<string | null> => {
-  // TODO: Implement actual logic to retrieve user ID from session
-  console.warn("Using placeholder getCurrentUserId. Implement actual logic.");
-  // const session = await auth();
-  // return session?.user?.id ?? null;
-  return "placeholder-user-id"; // Return a placeholder for now
+  try {
+    const session = await auth(); // Use the imported auth function
+    return session?.user?.id ?? null; // Return ID or null
+  } catch (error) {
+      console.error("[getCurrentUserId] Error fetching session:", error);
+      // Decide on error handling: re-throw or return null?
+      // Re-throwing might be better to signal a deeper problem.
+      throw new Error("Failed to retrieve session"); 
+      // Or return null; 
+  }
 };
 
-// Add other auth-related functions or exports if needed 
+// Add other auth-related helper functions here if needed 

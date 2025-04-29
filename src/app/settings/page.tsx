@@ -21,6 +21,7 @@ import { CsvImportButton } from '@/features/settings/components/CsvImportButton'
 import GoalSettingsForm from '@/features/settings/components/GoalSettingsForm'; // Import Goal form
 import dayjs from 'dayjs';
 import { Checkbox } from '@/components/ui/checkbox';
+import { triggerWorkoutReminders } from '@/lib/notificationActions'; // Import the trigger action
 
 // Placeholder components for other sections
 const NotificationSettings = () => {
@@ -362,6 +363,7 @@ const IntegrationSettings = () => {
 
     const [isTutorialOpen, setIsTutorialOpen] = useState(false);
     const [fitbitProfile, setFitbitProfile] = useState<any>(null);
+    const [isTriggeringReminders, setIsTriggeringReminders] = useState(false);
 
     // Determine connection status from the selector result
     const isConnected = !!(fitbitConnection.profile?.fitbitAccessToken && fitbitConnection.profile?.fitbitExpiresAt);
@@ -602,11 +604,9 @@ const IntegrationSettings = () => {
 
     // Manual Sync Handler
     const handleSyncTodayFitbit = async () => {
-         const currentAccessToken = fitbitConnection.profile?.fitbitAccessToken;
-         const currentExpiresAt = fitbitConnection.profile?.fitbitExpiresAt;
-         if (!currentAccessToken || !currentExpiresAt) return;
-         if (isProfileLoading || isDisconnecting || isSyncingToday || isAutoSyncing) return;
-         await syncFitbitData(false); // Call shared function for manual sync
+        if (!isConnected || isSyncingToday || isDisconnecting || isProfileLoading || isAutoSyncing) return;
+        console.log("[Fitbit Manual Sync] Triggering sync for today...");
+        await syncFitbitData(); // Call the shared sync logic
     };
 
     const handleDisconnectFitbit = async () => {
@@ -642,41 +642,97 @@ const IntegrationSettings = () => {
         }
     };
 
+    // --- Manual Notification Trigger --- 
+    const handleTriggerReminders = async () => {
+        setIsTriggeringReminders(true);
+        toast.loading("Triggering workout reminders...");
+        try {
+            const result = await triggerWorkoutReminders();
+            toast.dismiss();
+            if (result.success) {
+                toast.success(`Reminder check complete. Sent: ${result.sent}, Failed: ${result.failed}`);
+                if (result.errors && result.errors.length > 0) {
+                    console.warn("[Manual Reminder Trigger] Completed with errors:", result.errors);
+                    toast.warning("Some reminders failed to send. Check console.");
+                }
+            } else {
+                 console.error("[Manual Reminder Trigger] Failed:", result.errors);
+                 toast.error("Failed to trigger reminders", { description: "Check console for errors." });
+            }
+        } catch (error) {
+            toast.dismiss();
+            console.error("[Manual Reminder Trigger] Error:", error);
+            toast.error("Error triggering reminders", { description: error instanceof Error ? error.message : 'Unknown error' });
+        } finally {
+            setIsTriggeringReminders(false);
+        }
+    };
+
     // Determine if any Fitbit operation is in progress
-    const isProcessing = isProfileLoading || isDisconnecting || isSyncingToday || isAutoSyncing;
+    const isProcessingFitbit = isProfileLoading || isDisconnecting || isSyncingToday || isAutoSyncing;
+
+    // --- Action Handlers --- //
+    const handleConnectFitbit = () => {
+        if (isConnected) return; // Prevent multiple clicks?
+        // Redirect to Fitbit OAuth flow
+        const FITBIT_AUTH_URL = `https://www.fitbit.com/oauth2/authorize?response_type=code&client_id=${process.env.NEXT_PUBLIC_FITBIT_CLIENT_ID}&scope=activity%20heartrate%20sleep%20nutrition%20profile&redirect_uri=${encodeURIComponent(process.env.NEXT_PUBLIC_FITBIT_REDIRECT_URI || 'http://localhost:3000/api/fitbit/callback')}`;
+        window.location.href = FITBIT_AUTH_URL;
+    };
 
     return (
-        <div className="space-y-4">
-            <h3 className="text-lg font-medium mb-2">Integrations</h3>
-            {/* Fitbit Section */}
-            <div className="p-4 border rounded-md space-y-3">
-                <h4 className="font-semibold">Fitbit</h4>
-                {isConnected ? (
-                    <div className="space-y-2">
-                        {fitbitProfile ? (
-                            <p className="text-sm text-gray-600">Connected as: {fitbitProfile.displayName} (User ID: {fitbitProfile.encodedId})</p>
+        <div className="space-y-8">
+            <h3 className="text-lg font-medium mb-2">Fitbit Integration</h3>
+            {isConnected ? (
+                <div className="space-y-2">
+                    <p>Connected as: <strong>{fitbitProfile?.fullName || 'Loading...'}</strong></p>
+                    <p className="text-sm text-muted-foreground">User ID: {fitbitConnection?.profile?.fitbitUserId}</p>
+                    <p className="text-sm text-muted-foreground">Token expires: {fitbitConnection?.profile?.fitbitExpiresAt ? new Date(fitbitConnection.profile.fitbitExpiresAt * 1000).toLocaleString() : 'N/A'}</p>
+                    
+                    {/* Button to manually sync today's data */}                       
+                    <Button 
+                        onClick={handleSyncTodayFitbit}
+                        disabled={isSyncingToday || isDisconnecting || isProfileLoading || isAutoSyncing}
+                        variant="outline"
+                        size="sm"
+                    >
+                        {isSyncingToday ? (
+                            <><span className="animate-spin mr-2">?</span> Syncing Today...</>
                         ) : (
-                            <p className="text-sm text-gray-500">{isProfileLoading ? 'Fetching profile...' : 'Profile not loaded.'}</p>
+                            <>Sync Today</> // Add icon?
                         )}
-                         {/* Show auto-sync status if relevant? Maybe too noisy
-                         {isAutoSyncing && <p className="text-xs text-gray-400 italic">Auto-syncing...</p>}
-                         */} 
-                        <div className="flex flex-wrap gap-2">
-                            <Button onClick={handleFetchFitbitProfile} disabled={isProcessing} variant="outline" size="sm">
-                                {isProfileLoading ? 'Loading...' : 'Refresh Profile'}
-                            </Button>
-                            <Button onClick={handleSyncTodayFitbit} disabled={isProcessing} variant="outline" size="sm">
-                                {isSyncingToday ? "Syncing..." : "Sync Today's Data"}
-                            </Button>
-                            <Button onClick={handleDisconnectFitbit} disabled={isProcessing} variant="destructive" size="sm">
-                                {isDisconnecting ? 'Disconnecting...' : 'Disconnect Fitbit'}
-                            </Button>
-                        </div>
-                    </div>
-                ) : (
-                    <FitbitConnectButton />
-                )}
-            </div>
+                    </Button>
+                    
+                    <Button 
+                        onClick={handleFetchFitbitProfile}
+                        disabled={isProfileLoading || isDisconnecting || isSyncingToday || isAutoSyncing}
+                        variant="outline"
+                        size="sm"
+                        className="ml-2"
+                    >
+                        {isProfileLoading ? (
+                            <><span className="animate-spin mr-2">?</span> Loading Profile...</>
+                        ) : (
+                            <>Refresh Profile</> // Add icon?
+                        )}
+                    </Button>
+
+                    <Button 
+                        onClick={handleDisconnectFitbit}
+                        disabled={isDisconnecting || isSyncingToday || isProfileLoading || isAutoSyncing}
+                        variant="destructive"
+                        size="sm"
+                        className="ml-2"
+                    >
+                        {isDisconnecting ? (
+                            <><span className="animate-spin mr-2">?</span> Disconnecting...</>
+                        ) : (
+                            <>Disconnect Fitbit</>
+                        )}
+                    </Button>
+                </div>
+            ) : (
+                <FitbitConnectButton />
+            )}
 
             {/* Wyze Scale Section (Placeholder UI) */}
              <div className="p-4 border rounded-md space-y-3 opacity-50 cursor-not-allowed">
@@ -693,15 +749,34 @@ const IntegrationSettings = () => {
                  <Button onClick={() => setIsTutorialOpen(true)} variant="outline" size="sm">Help Writing NFC Tags</Button>
             </div>
 
-            {/* Tutorial Modal */}
-            <Suspense fallback={<div>Loading Tutorial...</div>}>
+            {/* --- Manual Notification Trigger (for Dev/Testing) --- */}
+             <div>
+                <h3 className="text-lg font-medium mb-2">Notification Trigger (Dev)</h3>
+                <p className="text-sm text-muted-foreground mb-2">
+                    Manually triggers the check for upcoming workout reminders based on mock data.
+                </p>
+                <Button
+                    onClick={handleTriggerReminders}
+                    disabled={isTriggeringReminders}
+                    variant="secondary"
+                    size="sm"
+                >
+                    {isTriggeringReminders ? (
+                        <><span className="animate-spin mr-2">?</span> Triggering...</>
+                    ) : (
+                        <>Trigger Workout Reminders</>
+                    )}
+                </Button>
+            </div>
+
+            {isTutorialOpen && (
                 <TutorialModal 
+                    tutorial={nfcToolsTutorial} 
                     isOpen={isTutorialOpen} 
                     onClose={() => setIsTutorialOpen(false)} 
-                    tutorial={nfcToolsTutorial} // Assuming nfcToolsTutorial is defined/imported
-                    onComplete={handleTutorialComplete}
+                    onComplete={handleTutorialComplete} 
                 />
-            </Suspense>
+            )}
         </div>
     );
 };

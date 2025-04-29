@@ -4,31 +4,11 @@ import { type FitbitTokenData, FitbitDaily } from '@/types';
 import { cookies } from 'next/headers'; // Needed for reading/writing cookies in Server Actions
 import { kv } from "@vercel/kv";
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
+import { getCurrentUserId } from "@/lib/auth";
 import dayjs from "dayjs";
 
 // --- KV Key Function ---
 const getFitbitTokenKey = (userId: string): string => `fitbit-token:user:${userId}`;
-
-/**
- * Get the current user ID from the session.
- * @returns {Promise<string>} The current user's ID or throws if not authenticated.
- */
-async function getCurrentUserId(): Promise<string> {
-    try {
-        const session = await auth();
-        if (!session?.user?.id) {
-            throw new Error("User not authenticated");
-        }
-        return session.user.id;
-    } catch (error) {
-        console.error("[FitbitActions] Error getting current user ID:", error);
-        throw new Error("Failed to get current user ID");
-    }
-}
-
-// Removed placeholder db* functions (dbGetUserFitbitTokens, dbSaveUserFitbitTokens, dbDeleteUserFitbitTokens)
-// Removed storeFitbitTokens function as the /api/fitbit/callback route handles initial storage.
 
 /**
  * Refreshes the Fitbit access token using the stored refresh token (from HTTP-only cookie).
@@ -225,15 +205,13 @@ export async function revokeFitbitToken(): Promise<{ success: boolean; error?: s
     const cookieStore = await cookies();
     const refreshToken = cookieStore.get('fitbit_refresh_token')?.value;
 
-    // We still need the user ID to delete from KV, even if cookie is missing.
-    let userId: string;
-    try {
-        userId = await getCurrentUserId();
-    } catch (authError) {
-        console.error('[Fitbit Action] Revoke failed: Error getting user ID:', authError);
-        return { success: false, error: 'Authentication error' };
+    // Get userId first, handle null return
+    const userId = await getCurrentUserId();
+    if (!userId) {
+        console.error('[Fitbit Action] Revoke failed: User not authenticated.');
+        return { success: false, error: 'User not authenticated' }; // Correct error
     }
-    
+
     const tokenKey = getFitbitTokenKey(userId);
 
     // If no cookie, just try deleting from KV
@@ -277,49 +255,42 @@ export async function revokeFitbitToken(): Promise<{ success: boolean; error?: s
         });
 
         responseOk = response.ok;
-        if (!responseOk) {
-            const status = response.status;
-            if (status === 400 || status === 401) {
-                 console.warn(`[Fitbit Action] Revoke API returned ${status} for user ${userId}. Proceeding with cleanup.`);
-                 apiFailedNonFatal = true;
-            } else {
-                // Other errors are fatal - don't proceed to KV/cookie delete
-                let responseDataText = 'unknown';
-                try { responseDataText = await response.text(); } catch { /* ignore */ }
-                console.error(`[Fitbit Action] Fitbit token revoke HTTP error ${status} for user ${userId}:`, responseDataText);
-                return { success: false, error: 'revoke_api_error' };
-            }
+        if (!responseOk && (response.status === 400 || response.status === 401)) {
+            // Treat 400/401 from revoke endpoint as non-fatal for client, token is likely already invalid
+            console.warn(`[Fitbit Action] Revoke API returned ${response.status} for user ${userId}. Token likely already invalid.`);
+            apiFailedNonFatal = true; 
+        } else if (!responseOk) {
+            const responseData = await response.json().catch(() => ({})); // Attempt to get error details
+            const errorType = responseData?.errors?.[0]?.errorType || 'revoke_api_error';
+            console.error(`[Fitbit Action] Fitbit revoke API error for user ${userId}: ${response.status}`, responseData);
+            throw new Error(errorType);
         }
-    } catch (fetchError) {
-        console.error(`[Fitbit Action] Network/unexpected error during token revoke for user ${userId}:`, fetchError);
-        return { success: false, error: 'unknown_revoke_error' };
+        console.log(`[Fitbit Action] Fitbit revoke API call successful or non-fatal failure for user ${userId}.`);
+
+    } catch (error) {
+        console.error(`[Fitbit Action] Network/unexpected error during token revoke for user ${userId}:`, error);
+        return { success: false, error: error instanceof Error ? error.message : 'unknown_revoke_error' };
     }
 
-    // Proceed with cleanup only if fetch was OK or failed non-fatally (400/401)
-    if (responseOk || apiFailedNonFatal) {
-        try {
-            console.log(`[Fitbit Action] Deleting token from KV for user ${userId}...`);
+    // Always attempt to clear the cookie and KV entry regardless of API result (unless network error)
+    try {
+        cookieStore.delete('fitbit_refresh_token');
+        // Only delete from KV if the API call was actually successful (responseOk)
+        if (responseOk) {
             await kv.del(tokenKey);
-        } catch (kvDelError) {
-            console.error(`[Fitbit Action] Failed to delete token from KV for user ${userId}:`, kvDelError);
+            console.log(`[Fitbit Action] Successfully revoked token and deleted from KV for user ${userId}.`);
+        } else {
+            console.warn(`[Fitbit Action] Cleared cookie, but did not delete KV token for user ${userId} due to API status (ok: ${responseOk}, nonFatal: ${apiFailedNonFatal}).`);
+        }
+        return { success: true }; // Report overall success to client even if API had non-fatal error
+    } catch (cleanupError) {
+        console.error(`[Fitbit Action] Error during token cleanup for user ${userId}:`, cleanupError);
+        // Determine which cleanup failed
+        if ((cleanupError as Error).message.includes('KV')) { // Heuristic check
             return { success: false, error: 'kv_delete_error' };
+        } else {
+             return { success: false, error: 'cookie_delete_error' };
         }
-
-        try {
-            console.log(`[Fitbit Action] Deleting refresh token cookie...`);
-            cookieStore.delete('fitbit_refresh_token');
-        } catch (cookieError) {
-            console.error("[Fitbit Action] Failed to delete refresh token cookie after successful revoke:", cookieError);
-            // Log error but still return success
-        }
-        
-        console.log(`[Fitbit Action] Token revoke and cleanup successful for user ${userId}.`);
-        revalidatePath('/settings'); 
-        return { success: true };
-    } else {
-         // Should not happen due to error handling in try block, but as fallback:
-         console.error('[Fitbit Action] Reached unexpected state after revoke attempt.');
-         return { success: false, error: 'unexpected_revoke_state' };
     }
 }
 
@@ -372,218 +343,177 @@ export async function syncFitbitDataForDate({
     newAccessToken?: string;
     newExpiresAt?: number;
 }> {
-    let effectiveUserId: string;
-    if (!userId) {
-        try {
+    let effectiveUserId = userId;
+    let tokenInfo: FitbitTokenData | null = null;
+
+    // --- Determine User ID and Token Source --- 
+    if (!currentAccessToken || !currentExpiresAt) {
+        // Need to fetch token, so we MUST have a user ID
+        if (!effectiveUserId) {
             effectiveUserId = await getCurrentUserId();
-        } catch (authError) {
-            console.error("[Fitbit Sync] Auth error:", authError);
-            return { success: false, error: "User not authenticated" };
+            if (!effectiveUserId) {
+                console.error("[Fitbit Sync] Cannot fetch token: User not authenticated.");
+                return { success: false, error: "User not authenticated" };
+            }
+        }
+        // Fetch token from KV
+        const tokenKey = getFitbitTokenKey(effectiveUserId);
+        try {
+            const storedTokenString = await kv.get<string>(tokenKey);
+            if (storedTokenString) {
+                tokenInfo = JSON.parse(storedTokenString) as FitbitTokenData;
+                currentAccessToken = tokenInfo.accessToken;
+                // Fix: Use ?? undefined to match expected type 'string | null | undefined'
+                currentExpiresAt = tokenInfo.expiresAt ?? undefined; 
+            } else {
+                 console.error(`[Fitbit Sync] No Fitbit token found in KV for user ${effectiveUserId}.`);
+                 return { success: false, error: "Fitbit token not found or invalid." };
+            }
+        } catch (error) {
+            console.error(`[Fitbit Sync] Error fetching/parsing token from KV for user ${effectiveUserId}:`, error);
+            return { success: false, error: "kv_fetch_error" };
         }
     } else {
-        effectiveUserId = userId;
+        // Using token passed directly
+        console.log(`[Fitbit Sync] Using token passed directly for user ${effectiveUserId || '(unknown, token provided)'}.`);
     }
-    console.log(`[Fitbit Sync] Starting sync for user ${effectiveUserId}, date: ${date}`);
 
-    let tokenInfo = { accessToken: currentAccessToken, expiresAt: currentExpiresAt };
+    // --- Check Token Validity (again, as KV might have old data) ---
+    if (!currentAccessToken || !currentExpiresAt) {
+         console.error(`[Fitbit Sync] Failed: Missing access token or expiry after resolving source.`);
+         return { success: false, error: 'missing_token_details' };
+    }
+
+    // --- Perform Fetch/Refresh Logic (similar to fetchFitbitData) --- 
+    let accessTokenToUse = currentAccessToken;
     let newAccessToken: string | undefined = undefined;
     let newExpiresAt: number | undefined = undefined;
-
-    // Fetch token from KV if not provided
-    if (!tokenInfo.accessToken || !tokenInfo.expiresAt) {
-        console.log(`[Fitbit Sync] Token not passed directly, fetching from KV for user ${effectiveUserId}.`);
-        const tokenKey = getFitbitTokenKey(effectiveUserId);
-        const storedToken = await kv.get<FitbitTokenData>(tokenKey);
-        if (!storedToken?.accessToken || !storedToken?.expiresAt) {
-            console.warn(`[Fitbit Sync] No valid token in KV for user ${effectiveUserId}. Aborting sync.`);
-            return { success: false, error: 'Fitbit token not found or invalid.' };
-        }
-        tokenInfo = { accessToken: storedToken.accessToken, expiresAt: storedToken.expiresAt };
-        console.log(`[Fitbit Sync] Token found in KV. Expires at: ${new Date(tokenInfo.expiresAt * 1000).toISOString()}`);
-    } else {
-         console.log(`[Fitbit Sync] Using directly passed token. Expires at: ${new Date(tokenInfo.expiresAt * 1000).toISOString()}`);
-    }
-
-    // Check for expiry and attempt refresh *before* making multiple API calls
     const nowInSeconds = Math.floor(Date.now() / 1000);
-    if (tokenInfo.expiresAt && nowInSeconds >= tokenInfo.expiresAt) {
-        console.log(`[Fitbit Sync] Token expired/near expiry for user ${effectiveUserId}. Attempting refresh.`);
-        const refreshedToken = await refreshFitbitToken();
-        if (refreshedToken?.access_token && refreshedToken?.expires_at) {
-            console.log(`[Fitbit Sync] Token refresh successful. Using new token for user ${effectiveUserId}.`);
-            tokenInfo = { accessToken: refreshedToken.access_token, expiresAt: refreshedToken.expires_at };
-            newAccessToken = refreshedToken.access_token;
-            newExpiresAt = refreshedToken.expires_at;
-        } else {
-            console.error(`[Fitbit Sync] Token refresh failed for user ${effectiveUserId}. Aborting sync.`);
-            return { success: false, error: 'Fitbit token expired and refresh failed.', newAccessToken, newExpiresAt };
+
+    if (currentExpiresAt <= nowInSeconds) {
+        console.log(`[Fitbit Sync] Access token for date ${date} expired. Attempting refresh...`);
+        const refreshResult = await refreshFitbitToken();
+        if (!refreshResult.success || !refreshResult.access_token || !refreshResult.expires_at) {
+            console.error(`[Fitbit Sync] Token refresh failed for date ${date}. Error: ${refreshResult.error}`);
+            // Return specific refresh error
+            return { success: false, error: refreshResult.error || 'refresh_failed' }; 
         }
+        accessTokenToUse = refreshResult.access_token;
+        newAccessToken = refreshResult.access_token;
+        newExpiresAt = refreshResult.expires_at;
+        console.log(`[Fitbit Sync] Token refresh successful for date ${date}.`);
     }
 
-    // Define endpoints to fetch
-    const endpoints = {
-        summary: `/1/user/-/activities/date/${date}.json`,
-        sleep: `/1.2/user/-/sleep/date/${date}.json`,
-        heart: `/1/user/-/activities/heart/date/${date}/1d.json`,
-        nutrition: `/1/user/-/foods/log/date/${date}.json`,
+    // --- Fetch Required Data Points --- 
+    const endpoints = [
+        `/1/user/-/activities/date/${date}.json`,
+        `/1/user/-/sleep/date/${date}.json`,
+        `/1/user/-/foods/log/date/${date}.json`,
+        // Add other endpoints if needed (e.g., heart rate)
+    ];
+
+    // Use a helper to fetch data, similar to fetchFitbitData but without refresh loop
+    const fetchDataInternal = async (endpoint: string): Promise<any> => {
+        const url = `https://api.fitbit.com${endpoint}`;
+        try {
+            const response = await fetch(url, {
+                headers: { 'Authorization': `Bearer ${accessTokenToUse}` },
+                cache: 'no-store',
+            });
+            if (!response.ok) {
+                 const errorData = await response.json().catch(() => ({}));
+                 const errorType = errorData?.errors?.[0]?.errorType || 'fetch_api_error';
+                 console.error(`[Fitbit Sync] API Error (${response.status}) fetching ${endpoint}:`, errorData);
+                 // If 401, maybe token became invalid since refresh check?
+                 if (response.status === 401) throw new Error('unauthorized_during_fetch'); 
+                 throw new Error(errorType);
+            }
+            return await response.json();
+        } catch (error) {
+             console.error(`[Fitbit Sync] Network/fetch error for ${endpoint}:`, error);
+             throw error; // Re-throw to be caught by Promise.allSettled
+        }
     };
 
-    const results: {
+    const results = await Promise.allSettled(endpoints.map(fetchDataInternal));
+
+    // --- Process Results --- 
+    const combinedData: Partial<FitbitDailyExtended> = { date }; // Use the extended interface
+    let overallSuccess = true;
+    const errors: string[] = [];
+
+    // Define mapping from endpoint index to data field
+    const fieldMapping: Record<number, { field: keyof FitbitDailyExtended, dataPath?: string[] | ((d: any) => any), required?: boolean }> = {
+        0: { field: 'activities', dataPath: ['summary'], required: true }, // Activities summary is required
+        1: { field: 'sleepMinutesTotal', dataPath: ['summary', 'totalMinutesAsleep'], required: false },
+        2: { field: 'caloriesIn', dataPath: ['summary', 'calories'], required: false },
+    };
+
+    results.forEach((result, index) => {
+        const mapping = fieldMapping[index];
+        if (!mapping) return; // Skip if no mapping defined
+
+        if (result.status === 'fulfilled') {
+            const data = result.value;
+            // Simplified extraction logic for now, refine later
+             if (index === 0 && data?.summary) { // Activities
+                combinedData.steps = data.summary.steps;
+                combinedData.caloriesOut = data.summary.caloriesOut;
+                combinedData.distanceKm = data.summary.distances?.find((d:any) => d.activity === 'total')?.distance;
+                combinedData.activeMinutes = (data.summary.fairlyActiveMinutes ?? 0) + (data.summary.veryActiveMinutes ?? 0);
+                combinedData.floors = data.summary.floors;
+                // Store full activities array too
+                combinedData.activities = data.activities; 
+             } else if (index === 1 && data?.summary) { // Sleep
+                 combinedData.sleepMinutesTotal = data.summary.totalMinutesAsleep;
+                 combinedData.sleepLight = data.summary.stages?.light;
+                 combinedData.sleepDeep = data.summary.stages?.deep;
+                 combinedData.sleepREM = data.summary.stages?.rem;
+                 combinedData.sleepAwake = data.summary.stages?.wake;
+             } else if (index === 2 && data?.summary) { // Food
+                 combinedData.caloriesIn = data.summary.calories;
+             }
+             // TODO: Add Resting Heart Rate, Water
+        } else { // Fulfilled means API call failed
+            console.error(`[Fitbit Sync] Fetch failed for endpoint ${endpoints[index]}:`, result.reason);
+            const errorMsg = result.reason instanceof Error ? result.reason.message : String(result.reason);
+            errors.push(`${mapping.field}_fetch_failed: ${errorMsg}`);
+            if (mapping.required) {
+                 overallSuccess = false;
+            }
+             // Handle specific errors like unauthorized that mean we should stop
+             if (errorMsg.includes('unauthorized')) {
+                 overallSuccess = false;
+             }
+        }
+    });
+
+    // Fix: Cast combinedData before returning to match the explicit return type
+    const returnData = combinedData as {
         date: string;
         steps?: number;
         activeMinutes?: number;
-        distanceKm?: number; 
+        distanceKm?: number;
         floors?: number;
         restingHeartRate?: number;
         caloriesOut?: number;
-        sleepMinutesTotal?: number;
+        sleepMinutesTotal?: number; 
         sleepLight?: number;
         sleepDeep?: number;
         sleepREM?: number;
         sleepAwake?: number;
         caloriesIn?: number;
         activities?: any[];
-    } = { date };
-    
-    let overallSuccess = true;
-    let errors: string[] = [];
-    let finalNewAccessToken = newAccessToken;
-    let finalNewExpiresAt = newExpiresAt;
-
-    // Fetch Summary first (provides steps, calories, distance etc.)
-    console.log(`[Fitbit Sync] Fetching summary for ${date}...`);
-    const summaryResult = await fetchFitbitData({
-        endpoint: endpoints.summary,
-        currentAccessToken: tokenInfo.accessToken,
-        currentExpiresAt: tokenInfo.expiresAt,
-    });
-
-    if (summaryResult.success && summaryResult.data?.summary) {
-        console.log(`[Fitbit Sync] Summary fetched successfully for ${date}.`);
-        const summary = summaryResult.data.summary;
-        
-        // Map exactly to the properties expected by tests
-        results.steps = summary.steps;
-        results.caloriesOut = summary.caloriesOut;
-        results.distanceKm = summary.distances?.find((d: any) => d.activity === 'total')?.distance;
-        results.floors = summary.floors;
-        results.restingHeartRate = summary.restingHeartRate;
-        
-        // Calculate active minutes exactly as expected by tests
-        const lightlyActiveMinutes = summary.lightlyActiveMinutes || 0;
-        const fairlyActiveMinutes = summary.fairlyActiveMinutes || 0;
-        const veryActiveMinutes = summary.veryActiveMinutes || 0;
-        results.activeMinutes = lightlyActiveMinutes + fairlyActiveMinutes + veryActiveMinutes;
-        
-        // Store activities as expected by tests
-        results.activities = summaryResult.data.activities || [];
-        
-        // Update token if it was refreshed during this fetch
-        if (summaryResult.newAccessToken && summaryResult.newExpiresAt) {
-            console.log("[Fitbit Sync] Token refreshed during summary fetch.");
-            tokenInfo = { accessToken: summaryResult.newAccessToken, expiresAt: summaryResult.newExpiresAt };
-            finalNewAccessToken = summaryResult.newAccessToken;
-            finalNewExpiresAt = summaryResult.newExpiresAt;
-        }
-    } else {
-        console.warn(`[Fitbit Sync] Failed to fetch summary for ${date}: ${summaryResult.error}`);
-        errors.push(`Summary: ${summaryResult.error || 'fetch failed'}`);
-        overallSuccess = false; // Mark sync as potentially incomplete
-        if (summaryResult.error?.includes('unauthorized')) {
-            // If unauthorized, stop further fetches for this sync
-            console.error(`[Fitbit Sync] Unauthorized error fetching summary for ${date}. Aborting further fetches.`);
-            return { success: false, error: 'unauthorized: Fitbit token invalid.', data: results, newAccessToken: finalNewAccessToken, newExpiresAt: finalNewExpiresAt };
-        }
-    }
-
-    // Fetch Sleep
-    console.log(`[Fitbit Sync] Fetching sleep for ${date}...`);
-    const sleepResult = await fetchFitbitData({
-        endpoint: endpoints.sleep,
-        currentAccessToken: tokenInfo.accessToken, // Use potentially refreshed token
-        currentExpiresAt: tokenInfo.expiresAt,
-    });
-    
-    if (sleepResult.success && sleepResult.data?.summary) {
-        console.log(`[Fitbit Sync] Sleep fetched successfully for ${date}.`);
-        
-        // Map to the exact property names expected by tests
-        results.sleepMinutesTotal = sleepResult.data.summary.totalMinutesAsleep;
-        
-        const totalMinutesAsleep = sleepResult.data.summary.totalMinutesAsleep || 0;
-        const totalTimeInBed = sleepResult.data.summary.totalTimeInBed || 0;
-        results.sleepAwake = Math.max(0, totalTimeInBed - totalMinutesAsleep);
-        
-        // Extract sleep stages data exactly as expected by tests
-        if (sleepResult.data.sleep && sleepResult.data.sleep.length > 0) {
-            const mainSleep = sleepResult.data.sleep.find((s: any) => s.isMainSleep) || sleepResult.data.sleep[0];
-            if (mainSleep.levels?.summary) {
-                results.sleepLight = mainSleep.levels.summary.light?.minutes;
-                results.sleepDeep = mainSleep.levels.summary.deep?.minutes;
-                results.sleepREM = mainSleep.levels.summary.rem?.minutes;
-            }
-        }
-        
-        if (sleepResult.newAccessToken && sleepResult.newExpiresAt) {
-            console.log("[Fitbit Sync] Token refreshed during sleep fetch.");
-            tokenInfo = { accessToken: sleepResult.newAccessToken, expiresAt: sleepResult.newExpiresAt };
-            finalNewAccessToken = sleepResult.newAccessToken;
-            finalNewExpiresAt = sleepResult.newExpiresAt;
-        }
-    } else {
-        console.warn(`[Fitbit Sync] Failed to fetch sleep for ${date}: ${sleepResult.error}`);
-        errors.push(`Sleep: ${sleepResult.error || 'fetch failed'}`);
-        overallSuccess = false;
-        if (sleepResult.error?.includes('unauthorized')) {
-            console.error(`[Fitbit Sync] Unauthorized error fetching sleep for ${date}. Aborting further fetches.`);
-            return { success: false, error: 'unauthorized: Fitbit token invalid.', data: results, newAccessToken: finalNewAccessToken, newExpiresAt: finalNewExpiresAt };
-        }
-    }
-    
-    // Fetch Nutrition (Calories In)
-    console.log(`[Fitbit Sync] Fetching nutrition for ${date}...`);
-    const nutritionResult = await fetchFitbitData({
-        endpoint: endpoints.nutrition,
-        currentAccessToken: tokenInfo.accessToken, // Use potentially refreshed token
-        currentExpiresAt: tokenInfo.expiresAt,
-    });
-    
-    if (nutritionResult.success && nutritionResult.data?.summary) {
-        console.log(`[Fitbit Sync] Nutrition fetched successfully for ${date}.`);
-        
-        // Map to exactly what tests expect
-        results.caloriesIn = nutritionResult.data.summary.calories;
-        
-        if (nutritionResult.newAccessToken && nutritionResult.newExpiresAt) {
-            console.log("[Fitbit Sync] Token refreshed during nutrition fetch.");
-            tokenInfo = { accessToken: nutritionResult.newAccessToken, expiresAt: nutritionResult.newExpiresAt };
-            finalNewAccessToken = nutritionResult.newAccessToken;
-            finalNewExpiresAt = nutritionResult.newExpiresAt;
-        }
-    } else {
-        console.warn(`[Fitbit Sync] Failed to fetch nutrition for ${date}: ${nutritionResult.error}`);
-        if (nutritionResult.error?.includes('scope')) {
-            console.log(`[Fitbit Sync] Nutrition scope likely missing for user ${effectiveUserId}. Skipping nutrition data.`);
-            errors.push(`Nutrition: Scope missing`);
-        } else if (nutritionResult.error?.includes('unauthorized')) {
-            console.error(`[Fitbit Sync] Unauthorized error fetching nutrition for ${date}. Aborting further fetches.`);
-            return { success: false, error: 'unauthorized: Fitbit token invalid.', data: results, newAccessToken: finalNewAccessToken, newExpiresAt: finalNewExpiresAt };
-        } else if (nutritionResult.error) {
-            errors.push(`Nutrition: ${nutritionResult.error}`);
-            overallSuccess = false;
-        }
-    }
-
-    console.log(`[Fitbit Sync] Sync process completed for user ${effectiveUserId}, date: ${date}. Overall Success: ${overallSuccess}. Errors: ${errors.join(', ')}`);
-
-    // Return combined data, success status, and any error messages
-    return {
-        success: overallSuccess,
-        error: errors.length > 0 ? errors.join('; ') : undefined,
-        data: (results.steps !== undefined || results.caloriesOut !== undefined || results.sleepMinutesTotal !== undefined) ? results : undefined,
-        newAccessToken: finalNewAccessToken,
-        newExpiresAt: finalNewExpiresAt,
     };
+
+    if (!overallSuccess) {
+        console.error(`[Fitbit Sync] Failed for date ${date} due to missing required data or critical error. Errors:`, errors);
+        // Return partial data if any was gathered, along with the first critical error
+        return { success: false, data: returnData, error: errors[0] || 'sync_failed_required_data', newAccessToken, newExpiresAt };
+    }
+
+    console.log(`[Fitbit Sync] Successfully synced data for date ${date}.`, combinedData);
+    return { success: true, data: returnData, newAccessToken, newExpiresAt };
 }
 
 // Type guards

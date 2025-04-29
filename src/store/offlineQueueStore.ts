@@ -20,6 +20,7 @@ interface OfflineQueueState {
   addAction: (actionData: Omit<QueuedAction, 'id' | 'timestamp'>) => void;
   getActions: () => QueuedAction[];
   removeAction: (id: string) => void;
+  updateActionMetadata: (id: string, metadata: Record<string, any>) => void;
   clearQueue: () => void;
   // Potentially add processor registration later
   // processor?: { registerDomain: (domain: string, handler: (action: QueuedAction) => void) => void };
@@ -52,6 +53,17 @@ export const useOfflineQueueStore = create<OfflineQueueState>()(
           pendingActions: state.pendingActions.filter(action => action.id !== id)
         }));
         console.log(`[Offline Queue] Action removed: ${id}`);
+      },
+
+      updateActionMetadata: (id, metadata) => {
+        set((state) => ({
+          pendingActions: state.pendingActions.map(action => 
+            action.id === id 
+              ? { ...action, metadata: { ...(action.metadata || {}), ...metadata } } 
+              : action
+          )
+        }));
+         console.log(`[Offline Queue] Updated metadata for action: ${id}`, metadata);
       },
 
       clearQueue: () => {
