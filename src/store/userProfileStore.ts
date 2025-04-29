@@ -15,13 +15,20 @@ interface PersistedUserProfileState {
     profile: UserProfile | null;
 }
 
+// Define the shape of data for the new action
+interface FitnessData { 
+  lastSyncedCaloriesOut?: number;
+  // Add other fitness-related fields here if needed in the future
+}
+
 // Define the full state including actions
 export interface UserProfileState {
   profile: UserProfile | null; // Only profile needs to be top-level state
   setProfile: (profileData: UserProfile) => void;
-  completeOnboarding: (profileData: Omit<UserProfile, 'completedOnboarding' | 'id' | 'completedTutorials' | 'notificationPrefs' | 'fitbitUserId' | 'fitbitAccessToken' | 'fitbitExpiresAt'>) => void;
-  updateSettings: (settingsData: Partial<Omit<UserProfile, 'notificationPrefs' | 'completedTutorials' | 'fitbitAccessToken' | 'fitbitExpiresAt'>>) => void; // Exclude managed fields
+  completeOnboarding: (profileData: Omit<UserProfile, 'completedOnboarding' | 'id' | 'completedTutorials' | 'notificationPrefs' | 'fitbitUserId' | 'fitbitAccessToken' | 'fitbitExpiresAt' | 'lastSyncedCaloriesOut'>) => void;
+  updateSettings: (settingsData: Partial<Omit<UserProfile, 'notificationPrefs' | 'completedTutorials' | 'fitbitAccessToken' | 'fitbitExpiresAt' | 'lastSyncedCaloriesOut' | 'id' | 'email' | 'image'>>) => void; // Exclude managed fields
   updateNotificationPref: (prefKey: keyof NotificationPreferences, value: boolean) => void;
+  updateFitnessData: (fitnessData: FitnessData) => void; // New action
   clearProfile: () => void;
   markTutorialComplete: (tutorialId: string) => void;
   hasCompletedTutorial: (tutorialId: string) => boolean;
@@ -54,6 +61,7 @@ export const defaultProfile: UserProfile = {
   // fitbitUserId: undefined,
   fitbitAccessToken: undefined,
   fitbitExpiresAt: undefined,
+  lastSyncedCaloriesOut: undefined,
 };
 
 // Initial state for the store slice
@@ -79,17 +87,17 @@ export const useUserProfileStore = create<UserProfileState>()(
             fitbitUserId: state.profile?.fitbitUserId,
             fitbitAccessToken: state.profile?.fitbitAccessToken,
             fitbitExpiresAt: state.profile?.fitbitExpiresAt,
+            lastSyncedCaloriesOut: state.profile?.lastSyncedCaloriesOut,
             completedOnboarding: true 
         }
       })),
 
-      // Update general settings, excluding managed/internal fields
+      // Update general settings (form fields)
       updateSettings: (settingsData) => set((state) => {
         if (!state.profile) return {}; 
 
-        // Define fields allowed to be updated by this action
-        // (Should match the fields included in UserProfileForm)
         const allowedUpdates: Partial<UserProfile> = {};
+        // Only allow updating fields typically found in a user profile form
         const updatableKeys: Array<keyof typeof settingsData> = [
             'name', 
             'lactoseSensitive',
@@ -101,10 +109,9 @@ export const useUserProfileStore = create<UserProfileState>()(
             'targetDate',
             'backIssues',
             'equipment',
-             // Add any other fields managed by UserProfileForm here
+            // 'lastSyncedCaloriesOut', // Removed from here
         ];
 
-        // Copy only allowed fields from settingsData
         for (const key of updatableKeys) {
              if (key in settingsData && settingsData[key] !== undefined) {
                  (allowedUpdates as any)[key] = settingsData[key];
@@ -113,8 +120,8 @@ export const useUserProfileStore = create<UserProfileState>()(
 
         return {
           profile: { 
-              ...state.profile, // Keep existing state (includes managed fields)
-              ...allowedUpdates, // Overwrite only the allowed fields
+              ...state.profile, 
+              ...allowedUpdates, 
           }
         };
       }),
@@ -132,6 +139,24 @@ export const useUserProfileStore = create<UserProfileState>()(
               }
           };
       }),
+
+      // New action to update fitness-related data
+       updateFitnessData: (fitnessData) => set((state) => {
+           if (!state.profile) return {};
+           // Define which keys this action can update
+           const allowedFitnessUpdates: Partial<UserProfile> = {};
+           if (fitnessData.lastSyncedCaloriesOut !== undefined) {
+               allowedFitnessUpdates.lastSyncedCaloriesOut = fitnessData.lastSyncedCaloriesOut;
+           }
+           // Add other fields from FitnessData interface here if needed
+           
+           return {
+               profile: {
+                   ...state.profile,
+                   ...allowedFitnessUpdates,
+               }
+           };
+       }),
 
       // Reset profile to null (will load default on next access if needed)
       clearProfile: () => set({ profile: null }), 
@@ -162,7 +187,8 @@ export const useUserProfileStore = create<UserProfileState>()(
                        ...defaultProfile, 
                        fitbitUserId: userId,
                        fitbitAccessToken: accessToken,
-                       fitbitExpiresAt: expiresAt 
+                       fitbitExpiresAt: expiresAt,
+                       lastSyncedCaloriesOut: defaultProfile.lastSyncedCaloriesOut,
                     }
                 };
           }

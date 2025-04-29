@@ -2,6 +2,19 @@ import type { NextAuthConfig } from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import Google from 'next-auth/providers/google';
 import GitHub from 'next-auth/providers/github';
+import { kv } from '@vercel/kv'; // Import KV client
+import bcrypt from 'bcrypt'; // Import bcrypt
+import type { User } from 'next-auth'; // Import User type for return
+
+// Define a type for the user data stored in KV (adjust as needed)
+interface StoredUser {
+  id: string;
+  name?: string | null;
+  email: string;
+  emailVerified?: Date | null;
+  image?: string | null;
+  passwordHash?: string | null; // Store hashed password for Credentials users
+}
 
 export const authConfig = {
   // Add pages configuration if you want custom login/error pages
@@ -45,26 +58,55 @@ export const authConfig = {
         email: { label: "Email", type: "email", placeholder: "jsmith@example.com" },
         password: { label: "Password", type: "password" }
       },
-      async authorize(credentials, req) {
-        // !!! IMPORTANT: Placeholder authorize function !!!
-        // Replace this with actual user lookup and password verification!
-        // Example: Fetch user from your database (KV store via adapter?)
-        // const user = await getUserByEmail(credentials.email);
-        // if (user && await comparePassword(credentials.password, user.passwordHash)) {
-        //   return { id: user.id, name: user.name, email: user.email }; // Return user object on success
-        // }
+      async authorize(credentials): Promise<User | null> {
+        const email = credentials?.email as string | undefined;
+        const password = credentials?.password as string | undefined;
 
-        // ---- START PLACEHOLDER ----
-        console.warn("Using placeholder authentication in auth.config.ts. REPLACE THIS!");
-        if (credentials?.email === 'test@example.com' && credentials?.password === 'password') {
-          // Return a mock user object
-          return { id: 'placeholder-user-id', name: 'Test User', email: 'test@example.com' };
+        if (!email || !password) {
+          console.error('[Auth] Missing email or password');
+          return null;
         }
-        // ---- END PLACEHOLDER ----
 
-        // If authentication fails, return null
-        console.log('Invalid credentials');
-        return null;
+        // --- Real Authentication Logic --- 
+        try {
+          console.log(`[Auth] Attempting login for: ${email}`);
+          // 1. Fetch user from KV store
+          const userKey = `user:email:${email.toLowerCase()}`;
+          const storedUser = await kv.get<StoredUser>(userKey);
+
+          if (!storedUser) {
+            console.log(`[Auth] User not found: ${email}`);
+            return null;
+          }
+
+          // 2. Check if user was created via Credentials (has password)
+          if (!storedUser.passwordHash) {
+            console.log(`[Auth] User ${email} signed up via OAuth, cannot use password.`);
+            // Optional: Provide a more specific error message to the user?
+            return null;
+          }
+
+          // 3. Compare provided password with stored hash
+          const passwordsMatch = await bcrypt.compare(password, storedUser.passwordHash);
+
+          if (passwordsMatch) {
+            console.log(`[Auth] Password match for: ${email}`);
+            // 4. Return user object (must match NextAuth User type)
+            return {
+              id: storedUser.id,
+              name: storedUser.name,
+              email: storedUser.email,
+              image: storedUser.image,
+            };
+          } else {
+            console.log(`[Auth] Invalid password for: ${email}`);
+            return null;
+          }
+        } catch (error) {
+          console.error('[Auth] Error during authorize:', error);
+          return null; // Return null on any error
+        }
+        // --- End Real Authentication Logic ---
       }
     })
   ], 

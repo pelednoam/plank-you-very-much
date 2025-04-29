@@ -114,26 +114,28 @@ export interface NotificationPreferences {
 }
 
 export interface UserProfile {
-  id?: string; // Add optional user ID
+  id?: string; // Optional: Will be assigned by the system (e.g., NextAuth)
   name: string;
-  dob?: string; // Date of birth for BMR calculation
-  sex?: 'male' | 'female' | 'prefer_not_say'; // Added 'prefer_not_say'
+  email?: string; // Added by NextAuth
+  image?: string; // Added by NextAuth
+  dob?: string; // ISO date string (e.g., "1980-01-01")
+  sex?: 'MALE' | 'FEMALE' | 'OTHER' | 'PREFER_NOT_SAY';
   heightCm?: number;
-  activityLevel?: 'SEDENTARY' | 'LIGHT' | 'MODERATE' | 'ACTIVE' | 'VERY_ACTIVE';
-  // Goals
-  targetBodyFatPct?: number;
-  targetDate?: string;
-  // Preferences/Flags
   lactoseSensitive: boolean;
+  activityLevel?: ActivityLevel;
+  targetBodyFatPct?: number;
+  targetDate?: string; // ISO date string
   backIssues?: boolean;
-  equipment?: string[]; // e.g., ['pullup-bar', 'balance-board']
-  completedTutorials?: string[]; // Track completed tutorial IDs
-  notificationPrefs?: NotificationPreferences;
+  equipment?: string[]; // e.g., ['DUMBBELLS', 'PULLUP_BAR']
+  
+  // Internal/Managed fields
   completedOnboarding: boolean;
-  fitbitUserId?: string; // Store Fitbit user ID after connection
-  // Add fields for client-side token management
+  notificationPrefs?: NotificationPreferences;
+  completedTutorials?: string[]; 
+  fitbitUserId?: string;
   fitbitAccessToken?: string;
-  fitbitExpiresAt?: number; // Store as seconds since epoch timestamp
+  fitbitExpiresAt?: number; // Unix timestamp (seconds)
+  lastSyncedCaloriesOut?: number; // Store last synced TDEE estimate from Fitbit
 }
 
 // --- Planner Types --- Moved from src/features/planner/types.ts

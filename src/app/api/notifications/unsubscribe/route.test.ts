@@ -1,146 +1,160 @@
 // src/app/api/notifications/unsubscribe/route.test.ts
-import { POST } from './route';
-import { dbDeleteSubscription } from '@/lib/notificationSubscriptionStorage';
-import httpMocks from 'node-mocks-http';
-import type { NextRequest } from 'next/server';
+import { POST } from '@/app/api/notifications/unsubscribe/route';
+import { NextRequest, NextResponse } from 'next/server';
+import { kv } from '@vercel/kv';
+import { getCurrentUserId } from '@/lib/auth';
 
-// Mock the storage function
-jest.mock('@/lib/notificationSubscriptionStorage', () => ({
-    dbDeleteSubscription: jest.fn(),
+// Mock Vercel KV
+jest.mock('@vercel/kv', () => ({
+  kv: {
+    sadd: jest.fn(),
+    smembers: jest.fn(),
+    srem: jest.fn(),
+  }
 }));
 
-// Simplify NextResponse mock (mirroring subscribe test)
-jest.mock('next/server', () => ({
-    NextResponse: {
-        json: jest.fn((body, init) => {
-            const status = init?.status ?? 200;
-            return {
-                status: status,
-                headers: new Headers(init?.headers), // Use standard Headers
-                json: async () => Promise.resolve(body),
-                text: async () => Promise.resolve(JSON.stringify(body)),
-                ok: status >= 200 && status < 300,
-            };
-        }),
-    },
+// Mock getCurrentUserId
+jest.mock('@/lib/auth', () => ({
+  getCurrentUserId: jest.fn(),
 }));
 
-// Mock console
-const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
-const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-
-// Type cast the mocked NextResponse.json
-const mockedNextResponseJson = jest.requireMock('next/server').NextResponse.json as jest.Mock;
+// Helper to create a mock NextRequest
+function createMockRequest(body: any): NextRequest {
+  const request = new NextRequest('http://localhost/api/notifications/unsubscribe', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json' },
+  });
+  return request;
+}
 
 describe('POST /api/notifications/unsubscribe', () => {
+  const mockUserId = 'test-user-456';
+  const endpointToRemove = 'https://example.com/push/endpoint-to-remove';
+  const otherEndpoint = 'https://example.com/push/other-endpoint';
+  
+  const subToRemoveString = JSON.stringify({ endpoint: endpointToRemove, keys: { p256dh: 'key1', auth: 'auth1' } });
+  const otherSubString = JSON.stringify({ endpoint: otherEndpoint, keys: { p256dh: 'key2', auth: 'auth2' } });
 
-    beforeEach(() => {
-        jest.clearAllMocks();
-        mockedNextResponseJson.mockClear();
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (getCurrentUserId as jest.Mock).mockResolvedValue(mockUserId);
+    (kv.smembers as jest.Mock).mockResolvedValue([subToRemoveString, otherSubString]);
+    (kv.srem as jest.Mock).mockResolvedValue(1); 
+  });
+
+  it('should return 401 if user is not authenticated', async () => {
+    (getCurrentUserId as jest.Mock).mockResolvedValueOnce(null);
+    const request = createMockRequest({ endpoint: endpointToRemove });
+    const response = await POST(request);
+    const json = await response.json();
+
+    expect(response.status).toBe(401);
+    expect(json.error).toBe('Unauthorized');
+    expect(kv.smembers).not.toHaveBeenCalled();
+    expect(kv.srem).not.toHaveBeenCalled();
+  });
+
+  it('should return 400 if endpoint is missing or invalid', async () => {
+    const request = createMockRequest({ endpoint: '' }); 
+    const response = await POST(request);
+    const json = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(json.error).toBe('Invalid or missing subscription endpoint');
+    expect(kv.smembers).not.toHaveBeenCalled();
+    expect(kv.srem).not.toHaveBeenCalled();
+  });
+
+   it('should return 400 if body is not valid JSON', async () => {
+     const request = new NextRequest('http://localhost/api/notifications/unsubscribe', {
+       method: 'POST',
+       body: 'invalid-json',
+       headers: { 'Content-Type': 'application/json' },
+     });
+     const response = await POST(request);
+     const json = await response.json();
+
+     expect(response.status).toBe(400);
+     expect(json.error).toBe('Invalid JSON body');
+     expect(kv.smembers).not.toHaveBeenCalled();
+     expect(kv.srem).not.toHaveBeenCalled();
+   });
+
+  it('should call kv.smembers with the correct user key', async () => {
+    const request = createMockRequest({ endpoint: endpointToRemove });
+    await POST(request);
+    const expectedKey = `subscriptions:user:${mockUserId}`;
+    expect(kv.smembers).toHaveBeenCalledTimes(1);
+    expect(kv.smembers).toHaveBeenCalledWith(expectedKey);
+  });
+
+  it('should call kv.srem with the correct key and stringified subscription when endpoint matches', async () => {
+    const request = createMockRequest({ endpoint: endpointToRemove });
+    await POST(request);
+    const expectedKey = `subscriptions:user:${mockUserId}`;
+    expect(kv.srem).toHaveBeenCalledTimes(1);
+    expect(kv.srem).toHaveBeenCalledWith(expectedKey, subToRemoveString);
+  });
+
+  it('should not call kv.srem if endpoint does not match any stored subscription', async () => {
+    const request = createMockRequest({ endpoint: 'non-existent-endpoint' });
+    await POST(request);
+    expect(kv.srem).not.toHaveBeenCalled();
+  });
+
+  it('should return 200 and success message if subscription is found and removed', async () => {
+    const request = createMockRequest({ endpoint: endpointToRemove });
+    const response = await POST(request);
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.message).toBe('Subscription removed successfully');
+  });
+
+  it('should return 200 and not found message if subscription endpoint is not found', async () => {
+    const request = createMockRequest({ endpoint: 'non-existent-endpoint' });
+    const response = await POST(request);
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.message).toBe('Subscription not found or already removed');
+    expect(kv.srem).not.toHaveBeenCalled();
+  });
+
+   it('should handle errors during kv.smembers call', async () => {
+     const kvError = new Error('KV smembers Error');
+     (kv.smembers as jest.Mock).mockRejectedValueOnce(kvError);
+     const request = createMockRequest({ endpoint: endpointToRemove });
+     const response = await POST(request);
+     const json = await response.json();
+
+     expect(response.status).toBe(500);
+     expect(json.error).toBe('Internal server error removing subscription');
+     expect(kv.srem).not.toHaveBeenCalled();
+   });
+
+    it('should handle errors during kv.srem call', async () => {
+      const kvError = new Error('KV srem Error');
+      (kv.srem as jest.Mock).mockRejectedValueOnce(kvError);
+      const request = createMockRequest({ endpoint: endpointToRemove });
+      const response = await POST(request);
+      const json = await response.json();
+
+      expect(response.status).toBe(500);
+      expect(json.error).toBe('Internal server error removing subscription');
     });
 
-     afterAll(() => {
-        consoleWarnSpy.mockRestore();
-        consoleLogSpy.mockRestore();
-        consoleErrorSpy.mockRestore();
-        jest.unmock('next/server'); // Clean up mock
+    it('should handle errors parsing subscription JSON strings', async () => {
+       (kv.smembers as jest.Mock).mockResolvedValueOnce([subToRemoveString, 'invalid-json']);
+       const request = createMockRequest({ endpoint: endpointToRemove });
+       const response = await POST(request);
+       const json = await response.json();
+        
+       expect(kv.srem).toHaveBeenCalledTimes(1);
+       expect(kv.srem).toHaveBeenCalledWith(`subscriptions:user:${mockUserId}`, subToRemoveString);
+       expect(response.status).toBe(200);
+       expect(json.message).toBe('Subscription removed successfully');
     });
 
-    const validEndpoint = 'https://example.com/push/456';
-    const validUserId = 'user-test-123';
-
-    it('should return 400 if endpoint is missing', async () => {
-        const testBody = { userId: validUserId }; // Missing endpoint
-        const req = httpMocks.createRequest<NextRequest>({
-            method: 'POST',
-            url: '/api/notifications/unsubscribe',
-            json: async () => Promise.resolve(testBody), // Add mock json()
-        });
-        const response = await POST(req);
-        const body = await response.json();
-        expect(response.status).toBe(400);
-        expect(body.error).toBe('Missing or invalid subscription endpoint');
-        expect(mockedNextResponseJson).toHaveBeenCalledWith(
-            { error: 'Missing or invalid subscription endpoint' }, 
-            { status: 400 }
-        );
-        expect(dbDeleteSubscription).not.toHaveBeenCalled();
-    });
-
-    it('should return 400 if userId is missing', async () => {
-        const testBody = { endpoint: validEndpoint }; // Missing userId
-        const req = httpMocks.createRequest<NextRequest>({
-            method: 'POST',
-            url: '/api/notifications/unsubscribe',
-             json: async () => Promise.resolve(testBody), // Add mock json()
-        });
-        const response = await POST(req);
-        const body = await response.json();
-        expect(response.status).toBe(400);
-        expect(body.error).toBe('Missing or invalid user ID');
-         expect(mockedNextResponseJson).toHaveBeenCalledWith(
-            { error: 'Missing or invalid user ID' }, 
-            { status: 400 }
-        );
-        expect(dbDeleteSubscription).not.toHaveBeenCalled();
-    });
-
-    it('should call dbDeleteSubscription and return 200 on success', async () => {
-        (dbDeleteSubscription as jest.Mock).mockResolvedValueOnce(undefined);
-        const testBody = { userId: validUserId, endpoint: validEndpoint };
-        const req = httpMocks.createRequest<NextRequest>({
-            method: 'POST',
-            url: '/api/notifications/unsubscribe',
-            json: async () => Promise.resolve(testBody), // Add mock json()
-        });
-        const response = await POST(req);
-        const body = await response.json();
-        expect(response.status).toBe(200);
-        expect(body.message).toBe('Subscription deleted successfully');
-         expect(mockedNextResponseJson).toHaveBeenCalledWith(
-            { message: 'Subscription deleted successfully' }, 
-            { status: 200 }
-        );
-        expect(dbDeleteSubscription).toHaveBeenCalledWith(validEndpoint);
-    });
-
-    it('should return 500 if dbDeleteSubscription fails', async () => {
-        const dbError = new Error('DB delete failed');
-        (dbDeleteSubscription as jest.Mock).mockRejectedValueOnce(dbError);
-        const testBody = { userId: validUserId, endpoint: validEndpoint };
-        const req = httpMocks.createRequest<NextRequest>({
-            method: 'POST',
-            url: '/api/notifications/unsubscribe',
-            json: async () => Promise.resolve(testBody), // Add mock json()
-        });
-        const response = await POST(req);
-        const body = await response.json();
-        expect(response.status).toBe(500);
-        expect(body.error).toBe('Internal server error');
-         expect(mockedNextResponseJson).toHaveBeenCalledWith(
-            { error: 'Internal server error' }, 
-            { status: 500 }
-        );
-        expect(dbDeleteSubscription).toHaveBeenCalledWith(validEndpoint);
-        expect(consoleErrorSpy).toHaveBeenCalledWith('[API Unsubscribe] Error processing unsubscription:', dbError);
-    });
-    
-    it('should return 400 for invalid JSON body (simulate req.json() throwing)', async () => {
-        const req = httpMocks.createRequest<NextRequest>({
-            method: 'POST',
-            url: '/api/notifications/unsubscribe',
-             // Mock json() to throw
-            json: async () => { throw new SyntaxError('Invalid JSON'); }
-        });
-        const response = await POST(req as NextRequest);
-        const body = await response.json();
-        expect(response.status).toBe(400);
-        expect(body.error).toBe('Invalid JSON body');
-        expect(mockedNextResponseJson).toHaveBeenCalledWith(
-            { error: 'Invalid JSON body' }, 
-            { status: 400 }
-        );
-        expect(dbDeleteSubscription).not.toHaveBeenCalled();
-    });
 }); 

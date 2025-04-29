@@ -1,8 +1,9 @@
 'use server';
 
 import { dbGetAllSubscriptions, dbDeleteSubscription } from './notificationSubscriptionStorage';
-import webpush from 'web-push';
-import type { PushSubscription, SendResult } from 'web-push';
+import webpush, { type PushSubscription, type RequestOptions } from 'web-push';
+import { getCurrentUserId } from './auth'; // Use real auth
+import { kv } from '@vercel/kv';
 
 // Placeholder: VAPID keys should be loaded securely from environment variables
 // Remove module-scoped variables
@@ -219,3 +220,128 @@ export async function triggerWorkoutReminders(): Promise<{ success: boolean; sen
         return { success: false, sent: sentCount, failed: failCount, errors };
     }
 } 
+
+// Ensure VAPID keys are set in environment variables
+if (!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+  console.error("VAPID keys are not configured in environment variables.");
+  // Optionally throw an error during startup if critical
+  // throw new Error("VAPID keys must be configured");
+}
+
+// Configure web-push
+webpush.setVapidDetails(
+  'mailto:your-email@example.com', // Replace with your contact email
+  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
+  process.env.VAPID_PRIVATE_KEY!
+);
+
+const getUserSubscriptionsKey = (userId: string) => `subscriptions:user:${userId}`;
+
+// --- Fetch User Subscriptions --- 
+async function getUserSubscriptions(userId: string): Promise<PushSubscription[]> {
+  const userSubsKey = getUserSubscriptionsKey(userId);
+  try {
+    const subscriptionStrings = await kv.smembers(userSubsKey);
+    const subscriptions: PushSubscription[] = [];
+    for (const subString of subscriptionStrings) {
+      try {
+        const sub = JSON.parse(subString) as PushSubscription;
+        // Basic validation again before adding
+        if (sub && sub.endpoint && sub.keys?.p256dh && sub.keys?.auth) {
+            subscriptions.push(sub);
+        } else {
+             console.warn(`[Push Service] Found invalid subscription string in KV for user ${userId}:`, subString);
+             // Optionally remove invalid data here: await kv.srem(userSubsKey, subString);
+        }
+      } catch (parseError) {
+        console.error(`[Push Service] Error parsing subscription for user ${userId} from KV: ${subString}`, parseError);
+         // Optionally remove invalid data here: await kv.srem(userSubsKey, subString);
+      }
+    }
+    console.log(`[Push Service] Found ${subscriptions.length} valid subscriptions for user ${userId}.`);
+    return subscriptions;
+  } catch (error) {
+    console.error(`[Push Service] Error fetching subscriptions for user ${userId} from KV:`, error);
+    return [];
+  }
+}
+
+// --- Remove Subscription (Helper) --- 
+async function removeSubscription(userId: string, endpoint: string): Promise<void> {
+  const userSubsKey = getUserSubscriptionsKey(userId);
+   console.log(`[Push Service] Attempting to remove subscription with endpoint ${endpoint} for user ${userId} due to push failure.`);
+   try {
+       const currentSubscriptions = await kv.smembers(userSubsKey);
+       for (const subString of currentSubscriptions) {
+           try {
+               const sub = JSON.parse(subString);
+               if (sub.endpoint === endpoint) {
+                   await kv.srem(userSubsKey, subString);
+                   console.log(`[Push Service] Removed stale subscription for user ${userId}, endpoint: ${endpoint}`);
+                   break; // Assume endpoint is unique
+               }
+           } catch { /* Ignore parse errors during cleanup */ }
+       }
+   } catch (error) {
+        console.error(`[Push Service] Error removing stale subscription for user ${userId}, endpoint: ${endpoint}:`, error);
+   }
+}
+
+// --- Send Notification Action --- 
+
+/**
+ * Sends a push notification to all registered subscriptions for the current user.
+ * 
+ * @param payload - The data to send in the push notification (can be string or object).
+ * @param options - Optional web-push options (e.g., TTL).
+ */
+export async function sendNotificationToCurrentUser(payload: string | object, options?: RequestOptions): Promise<void> {
+   const userId = await getCurrentUserId();
+   if (!userId) {
+     console.warn("[Push Service] Cannot send notification: User not authenticated.");
+     return;
+   }
+
+   const subscriptions = await getUserSubscriptions(userId);
+   if (subscriptions.length === 0) {
+     console.log(`[Push Service] No subscriptions found for user ${userId}. Notification not sent.`);
+     return;
+   }
+
+   console.log(`[Push Service] Sending notification to ${subscriptions.length} subscriptions for user ${userId}. Payload:`, payload);
+
+   const payloadString = typeof payload === 'string' ? payload : JSON.stringify(payload);
+
+   const sendPromises = subscriptions.map(subscription => 
+     webpush.sendNotification(subscription, payloadString, options)
+       .then(response => {
+         console.log(`[Push Service] Successfully sent notification to endpoint: ...${subscription.endpoint.slice(-6)}. Status: ${response.statusCode}`);
+       })
+       .catch(error => {
+         console.error(`[Push Service] Error sending notification to endpoint: ...${subscription.endpoint.slice(-6)}. Status: ${error.statusCode}. Body: ${error.body}`, error);
+         // Handle specific errors
+         if (error.statusCode === 404 || error.statusCode === 410) {
+           // Subscription is invalid or expired, remove it
+           removeSubscription(userId, subscription.endpoint);
+         } else {
+           // Log other errors, might indicate VAPID key issues, network problems, etc.
+           console.error("[Push Service] Unhandled push error:", error);
+         }
+       })
+   );
+
+   // Wait for all pushes to attempt sending
+   await Promise.allSettled(sendPromises);
+   console.log(`[Push Service] Finished attempting to send notifications to user ${userId}.`);
+}
+
+// Example Usage (e.g., from a server action triggered by a reminder): 
+// async function sendWorkoutReminder() {
+//   const payload = {
+//     title: "Workout Reminder",
+//     body: "Time for your scheduled core session!",
+//     icon: "/logo.png", // Optional icon
+//     // data: { url: '/planner' } // Optional data to open a specific page on click
+//   };
+//   await sendNotificationToCurrentUser(payload);
+// } 

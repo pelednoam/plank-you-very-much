@@ -336,56 +336,75 @@ const DataExportSettings = () => {
 };
 
 // Selectors can be defined outside the component for stability
-const selectFitbitConnectionData = (state: UserProfileState) => ({ 
-    accessToken: state.fitbitAccessToken, 
-    expiresAt: state.fitbitExpiresAt, 
-    userId: state.profile?.fitbitUserId 
+const selectFitbitConnectionData = (state: UserProfileState) => ({
+    accessToken: state.profile?.fitbitAccessToken, 
+    expiresAt: state.profile?.fitbitExpiresAt, 
+    userId: state.profile?.fitbitUserId,
+    profile: state.profile, // Include profile for checking connection in selector itself
 });
 
 const IntegrationSettings = () => {
     const router = useRouter();
     const searchParams = useSearchParams();
+    // Use the refined selector
     const fitbitConnection = useUserProfileStore(selectFitbitConnectionData);
-    const { setFitbitConnection, clearFitbitConnection } = useUserProfileStore(state => ({ 
+    const { setFitbitConnection, clearFitbitConnection, updateFitnessData } = useUserProfileStore(state => ({ 
         setFitbitConnection: state.setFitbitConnection, 
-        clearFitbitConnection: state.clearFitbitConnection 
+        clearFitbitConnection: state.clearFitbitConnection, 
+        updateFitnessData: state.updateFitnessData, // Use the new action
     }));
     const addOrUpdateActivity = useActivityStore(state => state.addOrUpdateActivity);
     
     const [isProfileLoading, setIsProfileLoading] = useState(false);
     const [isSyncingToday, setIsSyncingToday] = useState(false); // For manual sync button
     const [isDisconnecting, setIsDisconnecting] = useState(false);
-    const [isAutoSyncing, setIsAutoSyncing] = useState(false); // Added for automatic sync
+    const [isAutoSyncing, setIsAutoSyncing] = useState(false); 
 
     const [isTutorialOpen, setIsTutorialOpen] = useState(false);
     const [fitbitProfile, setFitbitProfile] = useState<any>(null);
 
-    const isConnected = !!fitbitConnection.accessToken;
+    // Determine connection status from the selector result
+    const isConnected = !!(fitbitConnection.profile?.fitbitAccessToken && fitbitConnection.profile?.fitbitExpiresAt);
 
     // Ref for preventing duplicate auto-sync calls
     const hasAutoSynced = useRef(false);
+    const initialLoadComplete = useRef(false); // Track initial load/callback handling
 
     // --- Effect for Handling OAuth Callback --- //
     useEffect(() => {
         const code = searchParams?.get('code');
         const error = searchParams?.get('error');
-
-        if (error) {
-            toast.error('Fitbit Connection Error', { description: `Failed to connect: ${error}` });
-            router.replace('/settings', { scroll: false });
-            return; // Stop processing if there's an error
+        
+        // Only process callback if not yet connected AND initial load hasn't happened
+        if (!isConnected && !initialLoadComplete.current) {
+            if (error) {
+                toast.error('Fitbit Connection Error', { description: `Failed to connect: ${error}` });
+                router.replace('/settings', { scroll: false });
+                initialLoadComplete.current = true; // Mark initial load done even on error
+                return; 
+            }
+            if (code) {
+                handleFitbitCallback(code); // This will set initialLoadComplete.current = true on success/error
+                return; // Wait for callback handler to finish
+            }
+        }
+        // If no code/error and not connected, mark initial load complete
+        if (!code && !error && !isConnected) {
+             initialLoadComplete.current = true; 
+        }
+        // If already connected, mark initial load complete
+        if(isConnected) {
+             initialLoadComplete.current = true; 
         }
 
-        // Handle callback if code present and not already connected or processing
-        if (code && !isConnected && !isDisconnecting && !isProfileLoading && !isSyncingToday && !isAutoSyncing) {
-            handleFitbitCallback(code);
-        }
-    }, [searchParams, isConnected, isProfileLoading, isDisconnecting, isSyncingToday, isAutoSyncing]); // Add auto-sync flag
+    // Only run when searchParams change initially. isConnected is handled inside.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchParams]);
 
-    // --- Effect for Initial Profile Fetch & Auto-Sync --- //
+    // --- Effect for Initial Profile Fetch & Auto-Sync (Post-Connect/Load) --- //
     useEffect(() => {
-        // Only run if connected and not currently performing other Fitbit actions
-        if (isConnected && !isProfileLoading && !isDisconnecting && !isSyncingToday && !isAutoSyncing) {
+        // Only run if connected AND initial load/callback processing is complete
+        if (isConnected && initialLoadComplete.current && !isProfileLoading && !isDisconnecting && !isSyncingToday && !isAutoSyncing) {
             // Fetch profile if not already loaded
             if (!fitbitProfile) {
                 handleFetchFitbitProfile(); // This function will trigger auto-sync on success
@@ -395,7 +414,8 @@ const IntegrationSettings = () => {
                  handleAutoSync();
              }
         }
-    }, [isConnected, fitbitProfile, isProfileLoading, isDisconnecting, isSyncingToday, isAutoSyncing]); // Dependencies
+    // Depends on connection status, profile state, initial load completion, and loading flags
+    }, [isConnected, fitbitProfile, isProfileLoading, isDisconnecting, isSyncingToday, isAutoSyncing, initialLoadComplete.current]); 
 
     const handleTutorialComplete = (tutorialId: string) => {
         useUserProfileStore.getState().markTutorialComplete(tutorialId);
@@ -403,21 +423,27 @@ const IntegrationSettings = () => {
 
     // --- Auto Sync Function --- //
     const handleAutoSync = async () => {
-        if (!fitbitConnection.accessToken || !fitbitConnection.expiresAt) return;
+        const currentAccessToken = fitbitConnection.profile?.fitbitAccessToken;
+        const currentExpiresAt = fitbitConnection.profile?.fitbitExpiresAt;
+
+        if (!currentAccessToken || !currentExpiresAt) return;
         // Prevent duplicate calls and concurrent operations
         if (hasAutoSynced.current || isSyncingToday || isProfileLoading || isDisconnecting || isAutoSyncing) return;
 
         setIsAutoSyncing(true);
         hasAutoSynced.current = true; // Mark as attempted
         console.log("[Fitbit Auto Sync] Triggering automatic sync for today...");
-        // Use the same logic as manual sync but without user-facing loading/toast
         await syncFitbitData(true); // Pass flag to indicate auto-sync
         setIsAutoSyncing(false);
     };
 
     // --- Shared Sync Logic (used by manual and auto sync) --- //
     const syncFitbitData = async (isAutomatic: boolean = false) => {
-        if (!fitbitConnection.accessToken || !fitbitConnection.expiresAt) return;
+        const currentAccessToken = fitbitConnection.profile?.fitbitAccessToken;
+        const currentExpiresAt = fitbitConnection.profile?.fitbitExpiresAt;
+        const currentUserId = fitbitConnection.profile?.fitbitUserId;
+        
+        if (!currentAccessToken || !currentExpiresAt || !currentUserId) return;
 
         const todayDate = dayjs().format('YYYY-MM-DD');
         if (!isAutomatic) {
@@ -428,8 +454,8 @@ const IntegrationSettings = () => {
         try {
             const result = await syncFitbitDataForDate({
                 date: todayDate,
-                currentAccessToken: fitbitConnection.accessToken,
-                currentExpiresAt: fitbitConnection.expiresAt
+                currentAccessToken: currentAccessToken,
+                currentExpiresAt: currentExpiresAt
             });
 
             if (!isAutomatic) toast.dismiss();
@@ -438,14 +464,22 @@ const IntegrationSettings = () => {
                 if (result.data) {
                     console.log(`[Fitbit Sync] Successfully synced data for ${todayDate}:`, result.data);
                     addOrUpdateActivity(result.data); // Update the activity store
+                    
+                    // --- Update User Profile with Synced Calories Out --- 
+                    if (result.data.caloriesOut !== undefined) {
+                        console.log(`[Fitbit Sync] Updating profile with today's caloriesOut: ${result.data.caloriesOut}`);
+                        updateFitnessData({ lastSyncedCaloriesOut: result.data.caloriesOut }); 
+                    }
+                    // --- End Update ---
+                    
                     if (!isAutomatic) toast.success(`Fitbit data synced for ${todayDate}.`);
                 } else {
                     if (!isAutomatic) toast.info(`Fitbit sync complete for ${todayDate}, but no new data found.`);
                 }
 
                 // Update token if refreshed
-                if (result.newAccessToken && result.newExpiresAt && fitbitConnection.userId) {
-                    setFitbitConnection(fitbitConnection.userId, result.newAccessToken, result.newExpiresAt);
+                if (result.newAccessToken && result.newExpiresAt) {
+                    setFitbitConnection(currentUserId, result.newAccessToken, result.newExpiresAt);
                     console.log(`[Fitbit Sync] Token refreshed during ${isAutomatic ? 'auto-' : ''}sync for ${todayDate}.`);
                 }
             } else {
@@ -453,11 +487,21 @@ const IntegrationSettings = () => {
                 if (result.data) {
                     console.warn(`[Fitbit Sync] Partially synced data for ${todayDate} with error: ${result.error}`, result.data);
                     addOrUpdateActivity(result.data);
+                    // Also try updating profile with partial data if available
+                     if (result.data.caloriesOut !== undefined) {
+                        console.log(`[Fitbit Sync] Updating profile with partially synced caloriesOut: ${result.data.caloriesOut}`);
+                        updateFitnessData({ lastSyncedCaloriesOut: result.data.caloriesOut }); 
+                     }
                     if (!isAutomatic) toast.warning(`Partial Fitbit sync for ${todayDate}. Error: ${result.error}`);
                 } else {
                     // Total failure
                     throw new Error(result.error || 'Failed to sync Fitbit data');
                 }
+                 // Check if token needs refresh based on error
+                 if (result.error?.includes('unauthorized') || result.error?.includes('expired_token')) {
+                     console.warn(`[Fitbit Sync] Unauthorized error during ${isAutomatic ? 'auto-' : ''}sync, attempting refresh...`);
+                     if (!isAutomatic) toast.error("Fitbit connection error. Please try refreshing profile or reconnecting.");
+                 }
             }
         } catch (error) {
             if (!isAutomatic) toast.dismiss();
@@ -490,31 +534,36 @@ const IntegrationSettings = () => {
             setFitbitConnection(data.fitbitUserId, data.accessToken, data.expiresAt);
             toast.success("Fitbit connected successfully!");
             // Fetch profile immediately after connect (this will also trigger auto-sync on success)
-            handleFetchFitbitProfile();
+            handleFetchFitbitProfile(); // Sets initialLoadComplete.current = true internally
 
         } catch (error) {
             toast.dismiss();
             console.error("Fitbit callback error:", error);
             toast.error("Fitbit Connection Failed", { description: error instanceof Error ? error.message : 'Unknown error' });
             setIsProfileLoading(false); // Reset loading on error
+            initialLoadComplete.current = true; // Ensure initial load flag is set even on error
         } finally {
             router.replace('/settings', { scroll: false });
-            // Loading state is reset within handleFetchFitbitProfile or on error
         }
     };
 
     const handleFetchFitbitProfile = async () => {
-        if (!fitbitConnection.accessToken || !fitbitConnection.expiresAt) return;
+        const currentAccessToken = fitbitConnection.profile?.fitbitAccessToken;
+        const currentExpiresAt = fitbitConnection.profile?.fitbitExpiresAt;
+        const currentUserId = fitbitConnection.profile?.fitbitUserId;
+
+        if (!currentAccessToken || !currentExpiresAt || !currentUserId) return;
         if (isProfileLoading || isDisconnecting || isSyncingToday || isAutoSyncing) return;
 
         setIsProfileLoading(true);
         toast.loading("Fetching Fitbit profile...");
         hasAutoSynced.current = false; // Reset auto-sync flag when fetching profile
+        initialLoadComplete.current = false; // Indicate profile fetch is part of initial load sequence
         try {
             const result = await fetchFitbitData({
                 endpoint: '/1/user/-/profile.json',
-                currentAccessToken: fitbitConnection.accessToken,
-                currentExpiresAt: fitbitConnection.expiresAt
+                currentAccessToken: currentAccessToken,
+                currentExpiresAt: currentExpiresAt
             });
             toast.dismiss();
 
@@ -522,30 +571,40 @@ const IntegrationSettings = () => {
                 setFitbitProfile(result.data.user);
                 toast.success("Fitbit profile loaded.");
                 // Update token if refreshed
-                if (result.newAccessToken && result.newExpiresAt && fitbitConnection.userId) {
-                    setFitbitConnection(fitbitConnection.userId, result.newAccessToken, result.newExpiresAt);
+                if (result.newAccessToken && result.newExpiresAt) {
+                    setFitbitConnection(currentUserId, result.newAccessToken, result.newExpiresAt);
                     console.log("[Fitbit Profile] Token refreshed during profile fetch.");
                 }
                  // --- Trigger auto-sync after successful profile fetch --- 
                  handleAutoSync(); 
             } else {
-                throw new Error(result.error || 'Failed to fetch profile data');
+                 if (result.error?.includes('unauthorized') || result.error?.includes('expired_token')) {
+                     console.warn("[Fitbit Profile] Unauthorized error during profile fetch.");
+                     toast.error("Fitbit connection error. Please try reconnecting.");
+                     // Clear connection if profile fetch fails due to auth
+                     clearFitbitConnection(); 
+                     setFitbitProfile(null);
+                     hasAutoSynced.current = false;
+                 } else {
+                    throw new Error(result.error || 'Failed to fetch profile data');
+                 }
             }
         } catch (error) {
             toast.dismiss();
             console.error("Error fetching Fitbit profile:", error);
             toast.error("Fitbit Profile Error", { description: error instanceof Error ? error.message : 'Unknown error' });
-            if ((error as any).message?.includes('unauthorized')) {
-                toast.warning("Fitbit connection might be invalid. Try disconnecting and reconnecting.");
-            }
+            // Don't clear connection on general errors, only auth errors above
         } finally {
             setIsProfileLoading(false);
+            initialLoadComplete.current = true; // Mark profile fetch sequence complete
         }
     };
 
-    // Manual Sync Handler - now calls the shared logic
+    // Manual Sync Handler
     const handleSyncTodayFitbit = async () => {
-         if (!fitbitConnection.accessToken || !fitbitConnection.expiresAt) return;
+         const currentAccessToken = fitbitConnection.profile?.fitbitAccessToken;
+         const currentExpiresAt = fitbitConnection.profile?.fitbitExpiresAt;
+         if (!currentAccessToken || !currentExpiresAt) return;
          if (isProfileLoading || isDisconnecting || isSyncingToday || isAutoSyncing) return;
          await syncFitbitData(false); // Call shared function for manual sync
     };
@@ -556,18 +615,26 @@ const IntegrationSettings = () => {
         setIsDisconnecting(true);
         toast.loading("Disconnecting Fitbit...");
         try {
-            const result = await revokeFitbitToken();
+            const result = await revokeFitbitToken(); // This action clears the cookie on server
             toast.dismiss();
+            // Always clear client state regardless of server result for consistency
+            clearFitbitConnection();
+            setFitbitProfile(null);
+            hasAutoSynced.current = false; // Reset flag on disconnect
+            
             if (result.success) {
-                clearFitbitConnection();
-                setFitbitProfile(null);
-                hasAutoSynced.current = false; // Reset flag on disconnect
-                toast.success("Fitbit disconnected.", { description: result.error ? `Note: ${result.error}` : undefined });
+                toast.success("Fitbit disconnected.");
             } else {
-                throw new Error(result.error || 'Failed to revoke token');
+                // Log server error but UI is already updated
+                console.error("Server error disconnecting Fitbit:", result.error);
+                toast.warning("Fitbit disconnected locally, but server reported an issue.", { description: result.error });
             }
         } catch (error) {
             toast.dismiss();
+             // Also clear client state on exception
+             clearFitbitConnection();
+             setFitbitProfile(null);
+             hasAutoSynced.current = false;
             console.error("Error disconnecting Fitbit:", error);
             toast.error("Fitbit Disconnect Failed", { description: error instanceof Error ? error.message : 'Unknown error' });
         } finally {

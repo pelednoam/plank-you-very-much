@@ -20,12 +20,16 @@ interface NutritionState {
   addMeal: (mealData: NewMealData, isOnline: boolean) => void;
   updateMeal: (updatedMeal: Meal) => void; // TODO: Implement offline for this if needed
   removeMeal: (mealId: string, isOnline: boolean) => void;
+  deleteMeal: (mealId: string, isOnline: boolean) => void; // Add deleteMeal action
   // Read actions don't need offline handling
   getMealsForDate: (date: string) => Meal[];
   getTotalCaloriesForDate: (date: string) => number;
   // Internal function for offline queue processing
   _applyQueuedUpdate: (action: QueuedAction, syncSuccess: boolean, serverResponse?: any) => void;
   getMealById: (id: string) => Meal | undefined;
+  // Internal action used by offline sync manager
+  _confirmMealDeletion: (mealId: string) => void;
+  _setMeals: (meals: Meal[]) => void; // Helper for hydration/sync
 }
 
 // Define the persistence options separately for clarity
@@ -155,6 +159,35 @@ export const useNutritionStore = create<NutritionState>()(
         }
       },
 
+      deleteMeal: (mealId: string, isOnline: boolean) => {
+         const mealToDelete = get().meals.find(m => m.id === mealId);
+         if (!mealToDelete) return; 
+
+         if (isOnline) {
+             // Optimistically mark as deleting
+             set((state) => ({
+                 meals: state.meals.map(m => 
+                     m.id === mealId ? { ...m, syncStatus: 'deleting' } : m
+                 )
+             }));
+
+             // Queue the deletion action (only type and payload)
+             useOfflineQueueStore.getState().addAction({
+                 type: 'nutrition.delete',
+                 payload: { id: mealId }, 
+             });
+         } else {
+             // If offline, remove immediately and queue deletion for later
+             console.log("Meal deleted offline, will queue for sync later.");
+             set((state) => ({ meals: state.meals.filter(m => m.id !== mealId) }));
+             // Queue the deletion action (only type and payload)
+             useOfflineQueueStore.getState().addAction({
+                 type: 'nutrition.delete',
+                 payload: { id: mealId },
+             });
+         }
+      },
+
       getMealById: (id: string) => {
         return get().meals.find((meal) => meal.id === id);
       },
@@ -248,6 +281,16 @@ export const useNutritionStore = create<NutritionState>()(
         // syncSuccess, as the attempt was made and processed here.
         // If sync failed, the state reflects 'error', requiring user action or maybe auto-retry later.
       },
+
+      // Internal action: Confirm deletion after successful backend sync
+      _confirmMealDeletion: (mealId) => {
+         set((state) => ({
+            meals: state.meals.filter(m => m.id !== mealId) 
+         }));
+      },
+
+      // Helper for setting state during hydration or full sync
+      _setMeals: (meals) => set({ meals }),
     }),
     // Pass the pre-defined persist options
     persistOptions

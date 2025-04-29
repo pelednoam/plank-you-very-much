@@ -1,8 +1,24 @@
 // src/app/api/notifications/subscribe/route.test.ts
-import { POST } from './route';
-import { dbSaveSubscription } from '@/lib/notificationSubscriptionStorage';
+import { POST } from '@/app/api/notifications/subscribe/route';
+import { NextRequest, NextResponse } from 'next/server';
+import { kv } from '@vercel/kv';
+import { getCurrentUserId } from '@/lib/auth';
 import httpMocks from 'node-mocks-http';
-import type { NextRequest, NextResponse as NextResponseType } from 'next/server'; 
+import type { NextRequest as NextRequestType, NextResponse as NextResponseType } from 'next/server'; 
+
+// Mock Vercel KV
+jest.mock('@vercel/kv', () => ({
+  kv: {
+    sadd: jest.fn(),
+    smembers: jest.fn(), 
+    srem: jest.fn(),   
+  }
+}));
+
+// Mock getCurrentUserId
+jest.mock('@/lib/auth', () => ({
+  getCurrentUserId: jest.fn(),
+}));
 
 // Mock the storage function
 jest.mock('@/lib/notificationSubscriptionStorage', () => ({
@@ -40,141 +56,113 @@ const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {}
 // Type cast the mocked NextResponse.json for potential assertions if needed
 const mockedNextResponseJson = jest.requireMock('next/server').NextResponse.json as jest.Mock;
 
+// Helper to create a mock NextRequest
+function createMockRequest(body: any): NextRequest {
+  const request = new NextRequest('http://localhost/api/notifications/subscribe', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json' },
+  });
+  return request;
+}
+
 describe('POST /api/notifications/subscribe', () => {
+  const mockUserId = 'test-user-123';
+  const validSubscription = {
+    endpoint: 'https://example.com/push/123',
+    keys: {
+      p256dh: 'p256dh_key',
+      auth: 'auth_key',
+    },
+  };
 
-    beforeEach(() => {
-        jest.clearAllMocks();
-        // Clear the NextResponse mock calls too
-        mockedNextResponseJson.mockClear(); 
-    });
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (getCurrentUserId as jest.Mock).mockResolvedValue(mockUserId);
+    (kv.sadd as jest.Mock).mockResolvedValue(1); 
+  });
 
-    afterAll(() => {
-        consoleWarnSpy.mockRestore();
-        consoleLogSpy.mockRestore();
-        consoleErrorSpy.mockRestore();
-        jest.unmock('next/server'); // Clean up mock
-    });
+  afterAll(() => {
+    consoleWarnSpy.mockRestore();
+    consoleLogSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    jest.unmock('next/server'); // Clean up mock
+  });
 
-    const mockSubscription = {
-        endpoint: 'https://example.com/push/123',
-        keys: { p256dh: 'key1', auth: 'auth1' },
-    };
+  it('should return 401 if user is not authenticated', async () => {
+    (getCurrentUserId as jest.Mock).mockResolvedValueOnce(null);
+    const request = createMockRequest({ subscription: validSubscription });
+    const response = await POST(request);
+    const json = await response.json();
 
-    it('should call NextResponse.json with 400 if userId is missing', async () => {
-        const testBody = { subscription: mockSubscription }; // Missing userId
-        const req = httpMocks.createRequest<NextRequest>({
-            method: 'POST',
-            url: '/api/notifications/subscribe',
-            // Add a json method to the mock request
-            json: async () => Promise.resolve(testBody), 
-        });
-        
-        const response = await POST(req);
-        const body = await response.json(); // This now works due to the mock
+    expect(response.status).toBe(401);
+    expect(json.error).toBe('Unauthorized');
+    expect(kv.sadd).not.toHaveBeenCalled();
+  });
 
-        expect(response.status).toBe(400);
-        expect(body.error).toBe('Missing or invalid user ID');
-        // Verify NextResponse.json was called with the correct arguments
-        expect(mockedNextResponseJson).toHaveBeenCalledWith(
-            { error: 'Missing or invalid user ID' }, 
-            { status: 400 }
-        );
-        expect(dbSaveSubscription).not.toHaveBeenCalled();
-    });
+  it('should return 400 if subscription object is invalid', async () => {
+    const invalidSubscription = { endpoint: 'invalid' };
+    const request = createMockRequest({ subscription: invalidSubscription });
+    const response = await POST(request);
+    const json = await response.json();
 
-    it('should call NextResponse.json with 400 if subscription object is invalid (missing endpoint)', async () => {
-        const invalidSub = { keys: { p256dh: 'key1', auth: 'auth1' } };
-        const testBody = { userId: 'user1', subscription: invalidSub };
-        const req = httpMocks.createRequest<NextRequest>({
-            method: 'POST',
-            url: '/api/notifications/subscribe',
-            json: async () => Promise.resolve(testBody),
-        });
-        const response = await POST(req);
-        const body = await response.json();
-        expect(response.status).toBe(400);
-        expect(body.error).toBe('Invalid subscription object');
-        expect(mockedNextResponseJson).toHaveBeenCalledWith(
-            { error: 'Invalid subscription object' }, 
-            { status: 400 }
-        );
-        expect(dbSaveSubscription).not.toHaveBeenCalled();
-    });
-    
-    it('should call NextResponse.json with 400 if subscription object is invalid (missing keys)', async () => {
-        const invalidSub = { endpoint: 'https://example.com/push/123' };
-        const testBody = { userId: 'user1', subscription: invalidSub };
-         const req = httpMocks.createRequest<NextRequest>({
-            method: 'POST',
-            url: '/api/notifications/subscribe',
-            json: async () => Promise.resolve(testBody),
-        });
-        const response = await POST(req);
-        const body = await response.json();
-        expect(response.status).toBe(400);
-        expect(body.error).toBe('Invalid subscription object');
-         expect(mockedNextResponseJson).toHaveBeenCalledWith(
-            { error: 'Invalid subscription object' }, 
-            { status: 400 }
-        );
-        expect(dbSaveSubscription).not.toHaveBeenCalled();
-    });
+    expect(response.status).toBe(400);
+    expect(json.error).toBe('Invalid subscription object');
+    expect(kv.sadd).not.toHaveBeenCalled();
+  });
 
-    it('should call dbSaveSubscription and NextResponse.json with 201 on success', async () => {
-        (dbSaveSubscription as jest.Mock).mockResolvedValueOnce(undefined);
-        const testBody = { userId: 'user1', subscription: mockSubscription };
-         const req = httpMocks.createRequest<NextRequest>({
-            method: 'POST',
-            url: '/api/notifications/subscribe',
-            json: async () => Promise.resolve(testBody),
-        });
-        const response = await POST(req);
-        const body = await response.json();
-        expect(response.status).toBe(201);
-        expect(body.message).toBe('Subscription saved successfully');
-        expect(mockedNextResponseJson).toHaveBeenCalledWith(
-            { message: 'Subscription saved successfully' }, 
-            { status: 201 }
-        );
-        expect(dbSaveSubscription).toHaveBeenCalledWith('user1', mockSubscription);
-    });
+   it('should return 400 if body is not valid JSON', async () => {
+     const request = new NextRequest('http://localhost/api/notifications/subscribe', {
+       method: 'POST',
+       body: 'invalid-json',
+       headers: { 'Content-Type': 'application/json' },
+     });
+     const response = await POST(request);
+     const json = await response.json();
 
-    it('should call NextResponse.json with 500 if dbSaveSubscription fails', async () => {
-        const dbError = new Error('Database error');
-        (dbSaveSubscription as jest.Mock).mockRejectedValueOnce(dbError);
-        const testBody = { userId: 'user1', subscription: mockSubscription };
-        const req = httpMocks.createRequest<NextRequest>({
-            method: 'POST',
-            url: '/api/notifications/subscribe',
-            json: async () => Promise.resolve(testBody),
-        });
-        const response = await POST(req);
-        const body = await response.json();
-        expect(response.status).toBe(500);
-        expect(body.error).toBe('Internal server error');
-         expect(mockedNextResponseJson).toHaveBeenCalledWith(
-            { error: 'Internal server error' }, 
-            { status: 500 }
-        );
-        expect(dbSaveSubscription).toHaveBeenCalledWith('user1', mockSubscription);
-        expect(consoleErrorSpy).toHaveBeenCalledWith('[API Subscribe] Error processing subscription:', dbError);
-    });
+     expect(response.status).toBe(400);
+     expect(json.error).toBe('Invalid JSON body');
+     expect(kv.sadd).not.toHaveBeenCalled();
+   });
 
-     it('should call NextResponse.json with 400 for invalid JSON body (simulate req.json() throwing)', async () => {
-         const req = httpMocks.createRequest<NextRequest>({
-             method: 'POST',
-             url: '/api/notifications/subscribe',
-             // Mock json() to throw, simulating a parsing error
-             json: async () => { throw new SyntaxError('Unexpected token i in JSON at position 1'); }
-         });
-         const response = await POST(req as NextRequest);
-         const body = await response.json();
-         expect(response.status).toBe(400);
-         expect(body.error).toBe('Invalid JSON body');
-         expect(mockedNextResponseJson).toHaveBeenCalledWith(
-            { error: 'Invalid JSON body' }, 
-            { status: 400 }
-        );
-         expect(dbSaveSubscription).not.toHaveBeenCalled();
-    });
+  it('should call kv.sadd with correct key and stringified subscription on success', async () => {
+    const request = createMockRequest({ subscription: validSubscription });
+    await POST(request);
+
+    const expectedKey = `subscriptions:user:${mockUserId}`;
+    const expectedValue = JSON.stringify(validSubscription);
+
+    expect(kv.sadd).toHaveBeenCalledTimes(1);
+    expect(kv.sadd).toHaveBeenCalledWith(expectedKey, expectedValue);
+  });
+
+  it('should return 201 and success message if kv.sadd is successful', async () => {
+    const request = createMockRequest({ subscription: validSubscription });
+    const response = await POST(request);
+    const json = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(json.message).toBe('Subscription saved successfully');
+  });
+
+   it('should return 201 even if subscription already exists (kv.sadd returns 0)', async () => {
+     (kv.sadd as jest.Mock).mockResolvedValueOnce(0);
+     const request = createMockRequest({ subscription: validSubscription });
+     const response = await POST(request);
+     const json = await response.json();
+
+     expect(response.status).toBe(201);
+     expect(json.message).toBe('Subscription saved successfully');
+   });
+
+  it('should return 500 if kv.sadd throws an error', async () => {
+    const kvError = new Error('KV Error');
+    (kv.sadd as jest.Mock).mockRejectedValueOnce(kvError);
+    const request = createMockRequest({ subscription: validSubscription });
+    const response = await POST(request);
+    const json = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(json.error).toBe('Internal server error saving subscription');
+  });
 }); 
