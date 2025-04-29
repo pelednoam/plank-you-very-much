@@ -65,11 +65,10 @@ This project follows the specifications outlined in [`Technical-Specification-an
     *   OAuth UI flow initiated from Settings.
     *   Callback handler (`/api/fitbit/callback/route.ts`) implemented to exchange code for tokens.
     *   **Improved Security:** Refresh tokens are stored in **secure, HTTP-only cookies**. Access tokens/expiry managed in client-side Zustand store (`userProfileStore`).
-    *   Server Actions (`src/lib/fitbitActions.ts`) implemented for refreshing tokens (using cookie) and fetching data (requires client-side token).
+    *   Server Actions (`src/lib/fitbitActions.ts`) implemented for refreshing tokens (using cookie), fetching arbitrary data (`fetchFitbitData`), **syncing daily summary data (`syncFitbitDataForDate`)**, and revoking tokens. **All related tests are passing.**
     *   **Deviation:** Server Actions still use **placeholder `getCurrentUserId`** for app-level authentication.
-    *   **Deviation:** Actual data sync logic beyond profile fetch in Settings is **not implemented**.
-    *   **Issue:** Linter errors exist in `fitbitActions.ts` related to `cookies()`.
-    *   **Issue:** Tests for `fitbitActions` (`fetchFitbitData`) are **skipped** due to mocking difficulties with Server Actions.
+    *   **Deviation:** Actual frontend integration to *trigger* `syncFitbitDataForDate` and *use* the resulting `FitbitDaily` data is **not implemented**.
+    *   **Issue:** Linter errors previously noted in `fitbitActions.ts` related to `cookies()` have been resolved or were related to test setup.
 *   **Notifications (Partial):**
     *   Frontend subscription UI/logic in Settings implemented (`NotificationSettings` component).
     *   Backend API routes for `/api/notifications/subscribe` and `/api/notifications/unsubscribe` exist.
@@ -86,32 +85,34 @@ This project follows the specifications outlined in [`Technical-Specification-an
         *   `src/store/offlineQueueStore.test.ts`
         *   `src/store/plannerStore.test.ts` (covers optimistic updates, offline/failure queuing)
         *   `src/lib/offlineSyncManager.test.ts`
-    *   **Skipped Tests:** `fitbitActions.test.ts`, `api/notifications/subscribe/route.test.ts`, `api/notifications/unsubscribe/route.test.ts`.
+        *   **`src/lib/fitbitActions.test.ts` (covers `refreshFitbitToken`, `fetchFitbitData`, `syncFitbitDataForDate`, `revokeFitbitToken`)**
+    *   **Skipped Tests:** `api/notifications/subscribe/route.test.ts`, `api/notifications/unsubscribe/route.test.ts`.
     *   **Missing:** Component tests, E2E tests (Cypress).
+    *   **Added:** A new `tests.md` file tracks test status in more detail.
 *   **Toast Notifications:** Implemented using `sonner`.
 *   **Data Export:** Implemented in Settings using `exportUtils.ts`.
 
 ### Current Issues / Known Limitations
 
-*   **Fitbit Integration:** Linter errors in `fitbitActions.ts` related to `cookies()`. Tests for `fetchFitbitData` are **skipped**.
+*   **Fitbit Integration:** Server Actions use a **placeholder `getCurrentUserId`**. Frontend logic to *trigger sync* and *utilize synced data* is missing.
 *   **Notifications:** API route tests (`subscribe/route.test.ts`, `unsubscribe/route.test.ts`) are **skipped**. Service worker functionality needs PWA build verification. Backend uses placeholder storage and does not send pushes.
 *   **Offline Sync Manager:** Uses simulated backend calls; requires real API integration. Lacks sophisticated error handling (e.g., retries, user feedback on permanent failure).
-*   **Testing:** Component tests and E2E tests (Cypress) are **missing**.
+*   **Testing:** Component tests and E2E tests (Cypress) are **missing**. (See `tests.md` for details).
 *   **Layout (`layout.tsx`):** Persistent linter errors regarding `BeforeInstallPromptEvent` type, despite global type definition in `src/types/global.d.ts`. The `@ts-ignore` directives are currently suppressing these.
 
 ### Missing Features / Next Steps (Prioritized)
 
 **High Priority (Core Functionality & Spec Alignment):**
 
-*   **Fitbit Integration (Complete Sync & Fixes):** _(Address deviations from Spec 8A)_.
-    *   Implement **full data sync logic** (sleep, HR, daily activity summaries) & integrate results.
-    *   Replace placeholder `getCurrentUserId` with actual authentication.
-    *   Resolve **linter errors** & **fix skipped tests** in `fitbitActions.ts`.
 *   **Notifications (Implement Backend & Fixes):** _(Address deviations from Spec 11 & 16)_.
     *   Implement **real database storage** for subscriptions.
     *   Implement **actual backend push service** using `web-push`.
     *   Implement real notification triggers.
     *   **Fix skipped tests** for API routes & verify `sw.js`.
+*   **Fitbit Integration (Frontend & Auth):** _(Address deviations from Spec 8A)_.
+    *   Implement **frontend logic** to trigger `syncFitbitDataForDate` (e.g., on app load, periodically).
+    *   Integrate the fetched `FitbitDaily` data into relevant stores/UI (e.g., update metrics, adjust calorie targets - Spec 17 v1.1).
+    *   Replace placeholder `getCurrentUserId` with **actual authentication** mechanism.
 *   **Offline Sync Manager (Real Backend & Error Handling):** Replace placeholder sync logic with actual API calls. Implement retry logic / user feedback for failures.
 *   **Planner Enhancements (Full Adaptive Generation):** Implement adaptive logic based on user progress/feedback (Spec 4.3 & 8.4).
 

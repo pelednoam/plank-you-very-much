@@ -332,10 +332,12 @@ export async function syncFitbitDataForDate({
     let latestNewAccessToken: string | undefined = undefined;
     let latestNewExpiresAt: number | undefined = undefined;
 
+    // Initialize with the date, other fields are optional per FitbitDaily type
     const consolidatedData: Partial<FitbitDaily> = { date };
     const errors: string[] = [];
 
-    // --- Fetch Activity Data --- 
+    // --- Fetch Activity Data ---
+    // Endpoint for daily activity summary (includes steps, calories, resting heart rate if available)
     const activityEndpoint = `/1/user/-/activities/date/${date}.json`;
     console.log(`[Fitbit Sync] Fetching activity data from ${activityEndpoint}`);
     const activityResult = await fetchFitbitData({
@@ -344,23 +346,31 @@ export async function syncFitbitDataForDate({
         currentExpiresAt: workingExpiresAt,
     });
 
+    // Process activity data if fetch was successful and summary exists
     if (activityResult.success && activityResult.data?.summary) {
         console.log("[Fitbit Sync] Activity data fetched successfully.");
         const { summary } = activityResult.data;
+        // Safely assign values using optional chaining or checks if needed,
+        // although the 'FitbitDaily' type marks these as optional (except date)
         consolidatedData.steps = summary.steps;
         consolidatedData.caloriesOut = summary.caloriesOut;
-        // Resting heart rate might be in a different endpoint or sometimes here
-        consolidatedData.restingHeartRate = summary.restingHeartRate;
+        // Resting heart rate might not always be present in the summary
+        if (summary.restingHeartRate !== undefined) {
+            consolidatedData.restingHeartRate = summary.restingHeartRate;
+        }
     } else {
-        console.error(`[Fitbit Sync] Failed to fetch activity data. Error: ${activityResult.error}`);
-        errors.push(`activity_fetch_failed: ${activityResult.error || 'unknown'}`);
-        // If a critical token error occurred, stop early
-        if (['invalid_grant', 'invalid_token', 'unauthorized_token_likely_invalid', 'config_missing', 'missing_client_token'].includes(activityResult.error || '')) {
-            return { success: false, error: activityResult.error };
+        // Log and record the error
+        const errorMsg = activityResult.error || 'unknown_activity_error';
+        console.error(`[Fitbit Sync] Failed to fetch activity data. Error: ${errorMsg}`);
+        errors.push(`activity_fetch_failed: ${errorMsg}`);
+        // If a critical token error occurred, stop early and return the error
+        // These errors mean subsequent requests will also fail
+        if (['invalid_grant', 'invalid_token', 'unauthorized_token_likely_invalid', 'config_missing', 'missing_client_token', 'refresh_failed'].includes(errorMsg)) {
+             return { success: false, error: errorMsg, newAccessToken: activityResult.newAccessToken, newExpiresAt: activityResult.newExpiresAt };
         }
     }
 
-    // Update working tokens if refresh occurred during activity fetch
+    // Update working tokens if a refresh occurred during the activity fetch
     if (activityResult.newAccessToken && activityResult.newExpiresAt) {
         console.log("[Fitbit Sync] Token refreshed during activity fetch. Updating working tokens.");
         workingAccessToken = activityResult.newAccessToken;
@@ -369,8 +379,8 @@ export async function syncFitbitDataForDate({
         latestNewExpiresAt = activityResult.newExpiresAt;
     }
 
-    // --- Fetch Sleep Data --- 
-    // Only proceed if no critical error occurred during activity fetch
+    // --- Fetch Sleep Data ---
+    // Endpoint for sleep summary
     const sleepEndpoint = `/1/user/-/sleep/date/${date}.json`;
     console.log(`[Fitbit Sync] Fetching sleep data from ${sleepEndpoint}`);
     const sleepResult = await fetchFitbitData({
@@ -379,40 +389,60 @@ export async function syncFitbitDataForDate({
         currentExpiresAt: workingExpiresAt,   // Use potentially updated expiry
     });
 
+    // Process sleep data if fetch was successful and summary exists
     if (sleepResult.success && sleepResult.data?.summary) {
-        console.log("[Fitbit Sync] Sleep data fetched successfully.");
-        consolidatedData.sleepMinutes = sleepResult.data.summary.totalMinutesAsleep;
+         console.log("[Fitbit Sync] Sleep data fetched successfully.");
+         // Ensure totalMinutesAsleep exists in the summary
+        if (sleepResult.data.summary.totalMinutesAsleep !== undefined) {
+            consolidatedData.sleepMinutes = sleepResult.data.summary.totalMinutesAsleep;
+        } else {
+             console.warn("[Fitbit Sync] Sleep data summary fetched, but totalMinutesAsleep is missing.");
+             // Optionally add a non-critical error/warning if needed
+             // errors.push('sleep_data_incomplete: missing totalMinutesAsleep');
+        }
     } else {
-        console.error(`[Fitbit Sync] Failed to fetch sleep data. Error: ${sleepResult.error}`);
-        errors.push(`sleep_fetch_failed: ${sleepResult.error || 'unknown'}`);
-        // Check for critical token errors again
-        if (['invalid_grant', 'invalid_token', 'unauthorized_token_likely_invalid', 'config_missing', 'missing_client_token'].includes(sleepResult.error || '')) {
-             // Return the critical error, potentially overwriting previous non-critical errors
-            return { success: false, error: sleepResult.error, newAccessToken: latestNewAccessToken, newExpiresAt: latestNewExpiresAt };
+        // Log and record the error
+        const errorMsg = sleepResult.error || 'unknown_sleep_error';
+        console.error(`[Fitbit Sync] Failed to fetch sleep data. Error: ${errorMsg}`);
+        errors.push(`sleep_fetch_failed: ${errorMsg}`);
+        // Check for critical token errors again (less likely if activity fetch succeeded/refreshed)
+        if (['invalid_grant', 'invalid_token', 'unauthorized_token_likely_invalid', 'config_missing', 'missing_client_token', 'refresh_failed'].includes(errorMsg)) {
+             // Return the critical error
+            return { success: false, error: errorMsg, newAccessToken: sleepResult.newAccessToken || latestNewAccessToken, newExpiresAt: sleepResult.newExpiresAt || latestNewExpiresAt };
         }
     }
-     // Update latest tokens if refresh occurred during sleep fetch (less likely if already refreshed)
+
+     // Update latest tokens if a refresh occurred *during* the sleep fetch
+     // This ensures the very latest token details are returned if multiple refreshes happened (unlikely but possible)
      if (sleepResult.newAccessToken && sleepResult.newExpiresAt) {
         console.log("[Fitbit Sync] Token refreshed during sleep fetch. Updating latest tokens.");
         latestNewAccessToken = sleepResult.newAccessToken;
         latestNewExpiresAt = sleepResult.newExpiresAt;
     }
 
-    // --- Final Result --- 
-    if (errors.length > 0) {
+    // --- Final Result ---
+    // Determine overall success based on whether any errors were recorded
+    const overallSuccess = errors.length === 0;
+
+    if (!overallSuccess) {
         console.warn(`[Fitbit Sync] Completed with errors for date ${date}:`, errors.join(", "));
+        // Return failure, include any partial data collected, and the latest token info
         return {
-            success: false, // Report overall failure if any part failed
+            success: false,
             error: errors.join(", "),
-            data: Object.keys(consolidatedData).length > 1 ? (consolidatedData as FitbitDaily) : undefined, // Return partial data if available
+            // Return partial data only if more than just the date was populated
+            data: Object.keys(consolidatedData).length > 1 ? (consolidatedData as FitbitDaily) : undefined,
             newAccessToken: latestNewAccessToken,
             newExpiresAt: latestNewExpiresAt,
         };
     } else {
         console.log(`[Fitbit Sync] Completed successfully for date ${date}.`);
+        // Return success, the fully consolidated data, and any new token info
         return {
             success: true,
-            data: consolidatedData as FitbitDaily, // Cast to full type on success
+            // All required fields should be present if no errors occurred (or handled gracefully above)
+            // Cast to FitbitDaily as per the type definition
+            data: consolidatedData as FitbitDaily,
             newAccessToken: latestNewAccessToken,
             newExpiresAt: latestNewExpiresAt,
         };
