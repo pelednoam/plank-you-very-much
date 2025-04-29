@@ -14,27 +14,28 @@ This project follows the specifications outlined in [`Technical-Specification-an
 
 ## 2. Tech Stack
 
-*   **Framework:** Next.js 15 (React 19) + TypeScript
-*   **Styling:** Tailwind CSS 4
-*   **State Management:** Zustand 5 (with IndexedDB persistence via `idb`)
-*   **Forms:** React Hook Form 7 + Zod (for validation)
+*   **Framework:** Next.js 14 (React 18) + TypeScript
+*   **Styling:** Tailwind CSS
+*   **State Management:** Zustand (with IndexedDB persistence via `idb`)
+*   **Forms:** React Hook Form + Zod (for validation)
 *   **Charts:** Recharts
 *   **Date Handling:** Day.js
 *   **Data Persistence:** IndexedDB via `idb` library
 *   **Markdown Rendering:** `unified`, `remark-parse`, `remark-html`
+*   **Integrations:** Fitbit Web API (OAuth 2.0), Google Health Connect / Apple HealthKit, Web NFC API
 *   **Testing:** Jest + React Testing Library (Unit/Component), Cypress (E2E)
 *   **PWA:** `@ducanh2912/next-pwa`
-*   **Other Libraries:** `uuid`, `@dnd-kit/*`, `lucide-react`
+*   **Other Libraries:** `uuid`, `@dnd-kit/*`, `lucide-react`, `sonner`
 
-## 3. Current Status (as of 2025-04-28 - Iteration 3)
+## 3. Current Status (as of [Date TBD] - Iteration X)
 
 ### Implemented Features
 
 *   **Project Setup:** Initialized using Next.js App Router (`create-next-app` with `--src-dir`, `--ts`, `--tailwind`, `--eslint`). Core dependencies installed.
 *   **Directory Structure:** Aligned with spec (Section 6), adapted for Next.js App Router conventions.
-*   **Data Types:** Core TypeScript interfaces defined (`src/types/index.ts`).
+*   **Data Types:** Core TypeScript interfaces defined (`src/types/index.ts`), including updated `BodyMetrics` (with `source` field).
 *   **State Management:** Zustand stores created and configured with IndexedDB persistence for `UserProfile`, `Planner`, `Metrics`, `Nutrition`, and `MediaAssets`.
-*   **Routing & Layout:** Basic layout (`layout.tsx`), shared components (`<Header />`, `<Sidebar />`, `<Modal />`), pages created for all main routes.
+*   **Routing & Layout:** Basic layout (`layout.tsx`), shared components (`<Header />`, `<Sidebar />`, `<Modal />`), pages created for all main routes using App Router.
 *   **UI Components:** Basic reusable components created (`<Button />`, `<Input />`, `<Label />`, `<Select />`, `<SelectOption />`).
 *   **Onboarding:** Multi-step form implemented, saves to store, handles completion state.
 *   **Dashboard:** Displays dynamic metrics from stores, including calculated BMR, TDEE, Calorie Target, and Protein Target.
@@ -48,14 +49,21 @@ This project follows the specifications outlined in [`Technical-Specification-an
 *   **Media Library (Initial):** `useMediaStore` created, `MealMediaDisplay` component implemented and integrated into `MealList` to show thumbnails. `ExerciseVideo` component created.
 *   **Guided Tutorials (Initial):** `TutorialModal` component created (renders markdown), NFC Tools tutorial data added, tutorial completion tracked in `userProfileStore`, trigger added to Settings page.
 *   **Testing:** Basic Jest + React Testing Library setup configured, sample unit test created.
+*   **Toast Notifications:** Implemented using `sonner` library; integrated into layout and `WorkoutModal`.
 
 ### Missing Features / Next Steps (Prioritized)
 
 *   **Fitbit Integration (Full - v1.1 Target):**
-    *   Secure token storage (access & refresh tokens).
-    *   Implement token refresh logic.
-    *   Implement data synchronization logic (fetch daily activity/sleep from Fitbit API).
+    *   Secure server-side token storage (access & refresh tokens).
+    *   Implement token refresh logic (server-side).
+    *   Implement data synchronization logic (server-side fetch daily activity/sleep from Fitbit API).
     *   Implement disconnect functionality (revoke token, clear state).
+*   **Wyze Scale Integration (via Health Connect / HealthKit):**
+    *   Implement native modules/plugins (e.g., Capacitor) to access Health Connect (Android) and HealthKit (iOS) - Spec Section 8F.
+    *   Request necessary permissions.
+    *   Implement logic to read latest weight/body fat data.
+    *   Update `BodyMetrics` store with synced data.
+    *   Consider PWA CSV import fallback.
 *   **Notifications (Full):**
     *   Implement Service Worker `push` event handler to display notifications.
     *   Implement backend mechanism for storing push subscriptions and sending messages (requires VAPID keys).
@@ -72,7 +80,7 @@ This project follows the specifications outlined in [`Technical-Specification-an
     *   Implement `MealGallery` component (Spec Section 4.11).
 *   **Settings Implementation (Full):** Implement UI/logic for granular Notification Preferences (Spec Section 11).
 *   **Testing:** Write comprehensive unit, component, and E2E tests for all major features (Spec Section 13).
-*   **Styling & UX Refinements:** Apply consistent styling, improve accessibility (WCAG), add PWA icons, implement better loading/empty states, add toast notifications (Spec Section 12).
+*   **Styling & UX Refinements:** Apply consistent styling, improve accessibility (WCAG), add PWA icons, implement better loading/empty states. Further refinement of toast notification styling/placement may be needed (Spec Section 12).
 *   **CI/CD:** Finalize GitHub Actions workflow for automated testing and deployment (Spec Section 14).
 *   **Knowledge Base (Full):** Implement dynamic data loading, filtering/search functionality.
 *   **AI Plan Regeneration (v2.0):** Integrate with OpenAI API (or similar) for dynamic plan adjustments based on progress/feedback (Spec Section 17).
@@ -89,7 +97,9 @@ This project follows the specifications outlined in [`Technical-Specification-an
     pnpm install
     ```
 3.  **Environment Variables:**
-    Create a `.env.local` file in the root directory. Add `NEXT_PUBLIC_APP_NAME`. For Fitbit integration, add `NEXT_PUBLIC_FITBIT_CLIENT_ID`, `FITBIT_CLIENT_SECRET`, `NEXT_PUBLIC_FITBIT_REDIRECT_URI`. For push notifications (later), add `NEXT_PUBLIC_VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`.
+    Create a `.env.local` file in the root directory for **client-side** variables. Add `NEXT_PUBLIC_APP_NAME`. For Fitbit integration, add `NEXT_PUBLIC_FITBIT_CLIENT_ID` and `NEXT_PUBLIC_FITBIT_REDIRECT_URI`.
+    Create a `.env` file (or use environment variables in your deployment environment) for **server-side** secrets. Add `FITBIT_CLIENT_SECRET`. For push notifications (later), add `NEXT_PUBLIC_VAPID_PUBLIC_KEY` (client-side) and `VAPID_PRIVATE_KEY` (server-side).
+    **Never commit `FITBIT_CLIENT_SECRET` or `VAPID_PRIVATE_KEY` to your repository.**
 4.  **Run the development server:**
     ```bash
     pnpm dev

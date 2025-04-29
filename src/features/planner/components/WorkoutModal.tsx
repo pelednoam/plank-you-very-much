@@ -1,18 +1,21 @@
 "use client";
 
-import React from 'react';
-import { useForm, Controller, SubmitHandler } from 'react-hook-form';
+import React, { useState, useEffect } from 'react';
+import { useForm, Controller, SubmitHandler, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import Modal from '@/components/ui/Modal';
-import type { Workout, WorkoutType } from '@/types';
+import type { Workout, WorkoutType, MediaAsset } from '@/types';
 import { usePlannerStore } from '@/store/plannerStore';
+import { useMediaStore } from '@/store/mediaStore';
+import ExerciseVideo from '@/features/media/components/ExerciseVideo';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
-import { Select, SelectOption } from '@/components/ui/Select';
+import { Select, SelectOption } from '@/components/ui/select';
 import { v4 as uuidv4 } from 'uuid';
 import dayjs from 'dayjs';
+import { toast } from "sonner";
 
 // Define Zod schema based on Workout type
 // Split date and time for better UX with form inputs
@@ -25,6 +28,7 @@ const workoutSchema = z.object({
     durationMin: z.number({invalid_type_error: 'Duration must be a number'})
                     .positive('Duration must be positive')
                     .int('Duration must be a whole number'),
+    mediaId: z.string().optional(), // Allow selecting one media asset
     // notes: z.string().optional(), // Keep simple for now
     // mediaIds: z.array(z.string()).optional(), // Add later if needed
 });
@@ -48,6 +52,9 @@ export const WorkoutModal: React.FC<WorkoutModalProps> = ({
 }) => {
     const addWorkout = usePlannerStore((state) => state.addWorkout);
     const updateWorkout = usePlannerStore((state) => state.updateWorkout);
+    const { findAssetsByTag } = useMediaStore((state) => ({ 
+        findAssetsByTag: state.findAssetsByTag 
+    }));
     const isEditing = !!workoutToEdit;
 
     const {
@@ -55,55 +62,101 @@ export const WorkoutModal: React.FC<WorkoutModalProps> = ({
         handleSubmit,
         register,
         reset,
+        watch,
         formState: { errors, isSubmitting },
     } = useForm<WorkoutFormData>({
         resolver: zodResolver(workoutSchema),
-        // Default values are set in useEffect
     });
 
-    React.useEffect(() => {
-        // Reset form when modal opens or relevant props change
+    const selectedType = watch('type');
+    const [availableMedia, setAvailableMedia] = useState<MediaAsset[]>([]);
+
+    useEffect(() => {
         if (isOpen) {
             const initialValues: WorkoutFormData = {
                 type: workoutToEdit?.type ?? 'CORE',
                 plannedAtDate: workoutToEdit ? dayjs(workoutToEdit.plannedAt).format('YYYY-MM-DD') : selectedDate ?? dayjs().format('YYYY-MM-DD'),
                 plannedAtTime: workoutToEdit ? dayjs(workoutToEdit.plannedAt).format('HH:mm') : '09:00',
                 durationMin: workoutToEdit?.durationMin ?? 30,
+                mediaId: workoutToEdit?.mediaIds?.[0] ?? '',
             };
             reset(initialValues);
+        } else {
+            setAvailableMedia([]);
         }
     }, [isOpen, workoutToEdit, selectedDate, reset]);
 
+    useEffect(() => {
+        if (selectedType && selectedType !== 'REST') {
+            const relevantAssets = findAssetsByTag(selectedType.toLowerCase());
+            setAvailableMedia(relevantAssets);
+        } else {
+            setAvailableMedia([]);
+        }
+    }, [selectedType, findAssetsByTag]);
 
     const onSubmit: SubmitHandler<WorkoutFormData> = (data) => {
-         // Combine date and time, then format to ISO string
-         const plannedAtISO = dayjs(`${data.plannedAtDate}T${data.plannedAtTime}`).toISOString();
+        const plannedAtDate = dayjs(data.plannedAtDate).startOf('day'); // Use dayjs for reliable date handling
 
-        const workoutData: Omit<Workout, 'id' | 'completed' | 'mediaIds'> = { // Ensure we match store function expectations
+        // Base workout data without id and completedAt (handled by store/logic)
+        // Keep mediaIds in the base type definition, handle it conditionally below
+        const workoutBaseData: Omit<Workout, 'id' | 'completedAt'> = {
             type: data.type,
-            plannedAt: plannedAtISO,
+            plannedAt: plannedAtDate.toISOString(), // Ensure ISO string format
             durationMin: data.durationMin,
+            // notes: data.notes || undefined, // Removed reference to non-existent 'notes'
+            mediaIds: workoutToEdit?.mediaIds || [], // Start with existing or empty
         };
 
-        try {
-            if (isEditing && workoutToEdit) {
-                // Assuming updateWorkout takes (id, partialWorkoutData)
-                updateWorkout(workoutToEdit.id, workoutData);
-            } else {
-                 // Assuming addWorkout takes Omit<Workout, 'id' | 'completed'> and adds id/completed itself
-                addWorkout(workoutData); // Pass only the core data
+        // Conditionally add the selected mediaId if one was chosen
+        if (data.mediaId && data.mediaId !== 'none') {
+            // Ensure mediaIds is always an array, add new ID if not already present
+            workoutBaseData.mediaIds = [...new Set([...(workoutBaseData.mediaIds || []), data.mediaId])];
+        } else if (data.mediaId === 'none' && workoutToEdit) {
+            // Explicitly remove media if 'None' was selected for an existing workout
+            // This might need refinement depending on desired behavior (e.g., removing specific IDs)
+            // For now, let's assume 'none' clears all mediaIds if selected during an edit.
+            // If creating, 'none' means no mediaId is added initially.
+            if (workoutBaseData.mediaIds && workoutBaseData.mediaIds.length > 0) {
+                console.warn("Selecting 'None' during edit will clear all associated media.");
+                workoutBaseData.mediaIds = [];
             }
-            onClose(); // Close modal after successful submission
+        }
+        // If creating a new workout and 'none' is selected, workoutBaseData.mediaIds remains [] (or its initial state)
+
+        try {
+            if (workoutToEdit) {
+                updateWorkout(workoutToEdit.id, workoutBaseData);
+                toast.success("Workout Updated", {
+                    description: `Your ${data.type} session has been updated.`
+                });
+            } else {
+                addWorkout(workoutBaseData);
+                toast.success("Workout Added", {
+                    description: `New ${data.type} session added to your plan.`
+                });
+            }
+            onClose(); // Close modal on success
         } catch (error) {
             console.error("Failed to save workout:", error);
-            // TODO: Implement user-facing error feedback
+            toast.error("Error", {
+                description: "Failed to save workout. Please try again later.",
+            });
         }
     };
 
     if (!isOpen) return null;
 
+    const currentMediaId = watch('mediaId');
+
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={isEditing ? "Edit Workout" : "Add Workout"}>
+            {(currentMediaId || workoutToEdit?.mediaIds?.[0]) && (
+                <div className="mb-4">
+                    <ExerciseVideo mediaId={currentMediaId || workoutToEdit!.mediaIds![0]} />
+                </div>
+            )}
+            
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
                 {/* Workout Type */}
                 <div>
@@ -115,7 +168,9 @@ export const WorkoutModal: React.FC<WorkoutModalProps> = ({
                             <Select
                                 id="type"
                                 value={field.value}
-                                onChange={field.onChange}
+                                onChange={(e) => {
+                                     field.onChange(e);
+                                 }}
                                 onBlur={field.onBlur}
                                 ref={field.ref}
                                 disabled={isSubmitting}
@@ -169,19 +224,40 @@ export const WorkoutModal: React.FC<WorkoutModalProps> = ({
                     {errors.durationMin && <p className="text-red-500 text-sm mt-1">{errors.durationMin.message}</p>}
                 </div>
 
-                {/* Add fields for mediaIds later if needed */}
+                {/* Media Selection Dropdown */}
+                 {selectedType && selectedType !== 'REST' && availableMedia.length > 0 && (
+                    <div>
+                        <Label htmlFor="mediaId">Related Media</Label>
+                        <Controller
+                            name="mediaId"
+                            control={control}
+                            render={({ field }) => (
+                                <Select
+                                    id="mediaId"
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                    onBlur={field.onBlur}
+                                    ref={field.ref}
+                                    disabled={isSubmitting}
+                                >
+                                    <SelectOption value="">None</SelectOption>
+                                    {availableMedia.map(asset => (
+                                        <SelectOption key={asset.id} value={asset.id}>
+                                            {asset.description || asset.id} ({asset.type})
+                                        </SelectOption>
+                                    ))}
+                                </Select>
+                            )}
+                        />
+                         {errors.mediaId && <p className="text-red-500 text-sm mt-1">{errors.mediaId.message}</p>}
+                    </div>
+                )}
 
                 <div className="flex justify-end space-x-2 pt-4">
                     <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
                     <Button type="submit" disabled={isSubmitting}>
                         {isSubmitting ? 'Saving...' : (isEditing ? 'Update Workout' : 'Add Workout')}
                     </Button>
-                    {/* Optionally add delete button if editing */}
-                     {/* {isEditing && (
-                        <Button type="button" variant="destructive" onClick={handleDelete} disabled={isSubmitting}>
-                            Delete
-                        </Button>
-                    )} */}
                 </div>
             </form>
         </Modal>
