@@ -3,13 +3,14 @@
 import React, { useState } from 'react';
 import { usePlannerStore } from '@/store/plannerStore';
 import { useUserProfileStore } from '@/store/userProfileStore'; // Import user profile store
-import type { Workout } from '@/types';
+import { useMediaStore } from '@/store/mediaStore'; // Import media store
+import type { Workout, MediaAsset } from '@/types';
 import dayjs from 'dayjs';
 import isBetween from 'dayjs/plugin/isBetween';
 // Import the modal component
 import { WorkoutModal } from './WorkoutModal';
-import { Button } from '@/components/ui/Button'; // For Add button
-import { PlusCircleIcon } from 'lucide-react';
+import { Button } from '@/components/ui/button'; // Corrected casing
+import { PlusCircleIcon, PlayCircleIcon } from 'lucide-react';
 // Import dnd-kit components
 import {
   DndContext,
@@ -23,35 +24,67 @@ import {
 } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus'; // Import and use online status hook
 
 dayjs.extend(isBetween);
 
 // --- Draggable Workout Item Component --- 
-const WorkoutItem = ({ workout, onClick }: { workout: Workout, onClick: (event: React.MouseEvent) => void }) => {
+const WorkoutItem = ({ 
+    workout, 
+    onClick, // For opening the modal
+    getAssetById // Function to get media asset details
+}: { 
+    workout: Workout;
+    onClick: (event: React.MouseEvent) => void; 
+    getAssetById: (id: string) => MediaAsset | undefined;
+}) => {
   const {attributes, listeners, setNodeRef, transform, isDragging} = useDraggable({
     id: workout.id,
-    data: { workout }, // Pass workout data for the drag event
+    data: { workout },
   });
 
   const style = transform ? {
     transform: CSS.Translate.toString(transform),
-    zIndex: isDragging ? 100 : 'auto', // Ensure dragged item is on top
+    zIndex: isDragging ? 100 : 'auto',
     opacity: isDragging ? 0.75 : 1,
   } : undefined;
+
+  // Check if there's a video associated
+  const firstMediaId = workout.mediaIds?.[0];
+  const mediaAsset = firstMediaId ? getAssetById(firstMediaId) : undefined;
+  const hasVideo = mediaAsset?.type === 'VIDEO';
 
   return (
     <div
         ref={setNodeRef}
         style={style}
-        {...listeners}
         {...attributes}
-        className="text-xs bg-blue-100 border border-blue-300 p-1 rounded mt-1 cursor-grab touch-none active:cursor-grabbing"
-        onClick={onClick} // Still allow opening modal on click
-        // Prevent day cell click when dragging starts (listeners handle this)
+        // Separate drag listener from click listener container
+        className={`text-xs bg-blue-100 border border-blue-300 p-1 rounded mt-1 cursor-grab touch-none active:cursor-grabbing ${isDragging ? 'shadow-lg' : ''}`}
     >
-      <span className="font-semibold">{workout.type}</span> ({workout.durationMin}m)
-      {/* Use completedAt based on type definition */}
-      {workout.completedAt && <span className="text-green-600 ml-1">(✓)</span>}
+      {/* Clickable area for modal */}
+      <div onClick={onClick} className="cursor-pointer">
+          {/* Drag Handle (optional, can use entire item) */}
+          <div {...listeners} className="flex items-center justify-between">
+              <span className="font-semibold flex-grow overflow-hidden whitespace-nowrap text-ellipsis pr-1">
+                  {workout.type} ({workout.durationMin}m)
+              </span>
+              <div className="flex items-center flex-shrink-0">
+                {workout.completedAt && <span className="text-green-600 ml-1 mr-1 text-base leading-none">✓</span>}
+                {hasVideo && (
+                    <button 
+                        type="button" 
+                        title={`Watch video for ${workout.type}`}
+                        // Re-use the onClick which opens the modal (modal already shows video)
+                        onClick={(e) => { e.stopPropagation(); onClick(e); }}
+                        className="text-blue-600 hover:text-blue-800 p-0 bg-transparent border-none"
+                    >
+                        <PlayCircleIcon size={16} />
+                    </button>
+                )}
+              </div>
+          </div>
+      </div>
     </div>
   );
 };
@@ -62,9 +95,10 @@ interface DayCellProps {
   workouts: Workout[];
   onOpenAddModal: (date: dayjs.Dayjs) => void;
   onOpenEditModal: (workout: Workout) => void;
+  getAssetById: (id: string) => MediaAsset | undefined; // Pass down getter
 }
 
-const DayCell = ({ day, workouts, onOpenAddModal, onOpenEditModal }: DayCellProps) => {
+const DayCell = ({ day, workouts, onOpenAddModal, onOpenEditModal, getAssetById }: DayCellProps) => {
   const dayStr = day.format('YYYY-MM-DD');
   const {isOver, setNodeRef} = useDroppable({
     id: dayStr, // Use date string as droppable ID
@@ -81,7 +115,12 @@ const DayCell = ({ day, workouts, onOpenAddModal, onOpenEditModal }: DayCellProp
       key={dayStr}
       style={style}
       className="border-r border-b border-gray-200 p-2 min-h-[120px] relative"
-      onClick={() => onOpenAddModal(day)} // Click empty space in day cell to add
+      onClick={(e) => { 
+        // Ensure click isn't on a workout item itself
+        if (e.target === e.currentTarget) {
+           onOpenAddModal(day); 
+        }
+       }} 
     >
       {/* Day Header - make non-interactive for dnd */}
       <div className="text-sm font-medium text-center mb-1 select-none">
@@ -96,8 +135,9 @@ const DayCell = ({ day, workouts, onOpenAddModal, onOpenEditModal }: DayCellProp
             <WorkoutItem
               key={workout.id}
               workout={workout}
-              onClick={(e: React.MouseEvent) => { // Explicitly type event
-                  e.stopPropagation(); // Prevent day cell click
+              getAssetById={getAssetById} // Pass getter
+              onClick={(e: React.MouseEvent) => {
+                  e.stopPropagation(); 
                   onOpenEditModal(workout);
               }}
             />
@@ -124,6 +164,8 @@ export default function WeeklyCalendarView({}: WeeklyCalendarViewProps) {
   }));
   // Get user profile for plan generation
   const userProfile = useUserProfileStore((state) => state.profile);
+  const getAssetById = useMediaStore((state) => state.getAssetById); // Get function from media store
+  const isOnline = useOnlineStatus(); // Import and use online status hook
 
   // --- Modal State --- 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -192,7 +234,8 @@ export default function WeeklyCalendarView({}: WeeklyCalendarViewProps) {
         const newPlannedAt = dayjs(`${newDateStr}T${originalTime}`).toISOString();
 
         console.log(`Moving workout ${active.id} to ${newPlannedAt}`);
-        updateWorkout(activeWorkout.id, { plannedAt: newPlannedAt });
+        // Pass isOnline status to updateWorkout
+        updateWorkout(activeWorkout.id, { plannedAt: newPlannedAt }, isOnline);
       }
     }
   }
@@ -246,6 +289,7 @@ export default function WeeklyCalendarView({}: WeeklyCalendarViewProps) {
               workouts={getWorkoutsForDay(day)}
               onOpenAddModal={handleOpenAddModal}
               onOpenEditModal={handleOpenEditModal}
+              getAssetById={getAssetById} // Pass down getter
             />
           ))}
         </div>

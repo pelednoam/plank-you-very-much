@@ -5,18 +5,20 @@ import type { Workout, WorkoutType, UserProfile } from '@/types';
 import { createIdbStorage } from '@/lib/idbStorage'; // Added
 import { generateWeeklyPlan } from '@/lib/plannerUtils'; // Import plan generation utility
 import dayjs from 'dayjs'; // Import for date handling
-import { useOfflineQueueStore } from './offlineQueueStore'; // Import queue store
+import { useOfflineQueueStore, QueuedAction } from './offlineQueueStore'; // Import queue store and action type
+import { toast } from 'sonner'; // Correct import for toasts used in the project
 
 interface PlannerState {
   workouts: Workout[];
-  addWorkout: (workoutData: Omit<Workout, 'id'>, isOnline: boolean) => Promise<Workout | null>; // Return null if queued
+  addWorkout: (workoutData: Omit<Workout, 'id' | 'startedAt' | 'completedAt' | 'syncStatus'>, isOnline: boolean) => Promise<Workout | null>; // Return null if queued
   updateWorkout: (id: string, updates: Partial<Omit<Workout, 'id'>>, isOnline: boolean) => Promise<boolean>; // Return false if queued
+  logWorkoutStart: (id: string, isOnline: boolean) => Promise<boolean>; // NFC/QR Trigger
   toggleWorkoutComplete: (id: string, isOnline: boolean) => Promise<boolean>; // Return false if queued
   removeWorkout: (id: string, isOnline: boolean) => Promise<boolean>; // Return false if queued
   getWorkoutsForDate: (date: string) => Workout[]; // date in ISO YYYY-MM-DD format
   generatePlan: (startDate: string | Date, userProfile: Partial<UserProfile>) => Promise<Workout[]>; // Make async if addWorkout is
   clearPlanForWeek: (startDate: string | Date) => void; // Clear all workouts for a given week
-  _applyQueuedUpdate: (actionType: string, payload: any) => void; // Internal action to apply updates from queue (not exposed via hook typically)
+  _applyQueuedUpdate: (action: QueuedAction, syncSuccess: boolean, serverResponse?: any) => void; // Corrected import used here
 }
 
 export const usePlannerStore = create(
@@ -25,34 +27,44 @@ export const usePlannerStore = create(
       workouts: [], // Start with an empty list
 
       addWorkout: async (workoutData, isOnline) => {
-        if (isOnline) {
-          const newWorkout: Workout = {
+        const tempId = uuidv4(); // Generate ID locally for optimistic update
+        const optimisticWorkout: Workout = {
             ...workoutData,
-            id: uuidv4(), // Assign a unique ID
-          };
-          set((state) => ({ workouts: [...state.workouts, newWorkout] }));
+            id: tempId,
+            // Ensure plannedAt is present if not in workoutData (should be)
+            plannedAt: workoutData.plannedAt || new Date().toISOString(),
+            durationMin: workoutData.durationMin || 0,
+            syncStatus: isOnline ? 'synced' : 'pending',
+        };
+
+        set((state) => ({ workouts: [...state.workouts, optimisticWorkout] }));
+
+        if (isOnline) {
+          console.log(`[Planner Online] Workout added: ${tempId}`);
           // TODO: Call server sync function here
-          // await syncAddWorkoutToServer(newWorkout);
-          console.log(`[Planner Online] Workout added: ${newWorkout.id}`);
-          return newWorkout;
+          // await syncAddWorkoutToServer(optimisticWorkout);
+          return optimisticWorkout;
         } else {
           useOfflineQueueStore.getState().addAction({
             type: 'planner/addWorkout',
-            payload: workoutData, // Queue the data needed to create the workout later
+            payload: workoutData,
+            metadata: { tempId: tempId },
           });
-          console.log(`[Planner Offline] Add workout action queued.`);
-          // Indicate the action was queued, not immediately performed
+          console.log(`[Planner Offline] Add workout action queued for: ${tempId}`);
           return null; 
         }
       },
 
       updateWorkout: async (id, updates, isOnline) => {
+        const originalWorkout = get().workouts.find(w => w.id === id);
+        if (!originalWorkout) return false;
+
+        // Optimistic update
+        set((state) => ({
+            workouts: state.workouts.map(w => w.id === id ? { ...w, ...updates, syncStatus: isOnline ? 'synced' : 'pending' } : w)
+        }));
+
         if (isOnline) {
-          const originalWorkout = get().workouts.find(w => w.id === id);
-          if (!originalWorkout) return false; // Or throw error?
-          set((state) => ({
-            workouts: state.workouts.map(w => w.id === id ? { ...w, ...updates } : w)
-          }));
           // TODO: Call server sync function here
           // await syncUpdateWorkoutToServer(id, updates);
           console.log(`[Planner Online] Workout updated: ${id}`);
@@ -61,24 +73,52 @@ export const usePlannerStore = create(
            useOfflineQueueStore.getState().addAction({
             type: 'planner/updateWorkout',
             payload: { id, updates }, 
+            metadata: { tempId: id }, // Use actual ID for updates
           });
           console.log(`[Planner Offline] Update workout action queued for: ${id}`);
           return false; // Indicate queued
         }
       },
+      
+      logWorkoutStart: async (id, isOnline) => {
+          const startTime = new Date().toISOString();
+          const updates = { startedAt: startTime };
+          const originalWorkout = get().workouts.find(w => w.id === id);
+          if (!originalWorkout) return false;
+
+          // Optimistic update
+          set((state) => ({
+              workouts: state.workouts.map(w => w.id === id ? { ...w, startedAt: startTime, syncStatus: isOnline ? 'synced' : 'pending' } : w)
+          }));
+
+          if (isOnline) {
+              // TODO: Call server sync function here for starting workout
+              // await syncLogWorkoutStartToServer(id, startTime);
+              console.log(`[Planner Online] Workout started: ${id}`);
+              return true;
+          } else {
+              useOfflineQueueStore.getState().addAction({
+                  type: 'planner/logWorkoutStart',
+                  payload: { id, startedAt: startTime },
+                  metadata: { tempId: id }, // Use actual ID
+              });
+              console.log(`[Planner Offline] Log workout start action queued for: ${id}`);
+              return false; // Indicate queued
+          }
+      },
 
       toggleWorkoutComplete: async (id, isOnline) => {
+         const originalWorkout = get().workouts.find(w => w.id === id);
+         if (!originalWorkout) return false;
+         const completedAt = originalWorkout.completedAt ? undefined : new Date().toISOString();
+         const updates = { completedAt };
+
+         // Optimistic update
+         set((state) => ({
+             workouts: state.workouts.map(w => w.id === id ? { ...w, completedAt, syncStatus: isOnline ? 'synced' : 'pending' } : w)
+         }));
+
          if (isOnline) {
-            const originalWorkout = get().workouts.find(w => w.id === id);
-            if (!originalWorkout) return false;
-            const completedAt = originalWorkout.completedAt ? undefined : new Date().toISOString();
-            set((state) => ({
-              workouts: state.workouts.map(w =>
-                w.id === id
-                  ? { ...w, completedAt }
-                  : w
-              )
-            }));
              // TODO: Call server sync function here
              // await syncToggleWorkoutCompleteToServer(id, completedAt);
              console.log(`[Planner Online] Workout completion toggled: ${id}`);
@@ -86,7 +126,8 @@ export const usePlannerStore = create(
          } else {
              useOfflineQueueStore.getState().addAction({
                 type: 'planner/toggleWorkoutComplete',
-                payload: { id }, // We can recalculate completedAt when processing queue
+                payload: { id, completedAt }, // Send the completedAt time
+                metadata: { tempId: id },
             });
              console.log(`[Planner Offline] Toggle completion action queued for: ${id}`);
             return false; // Indicate queued
@@ -94,18 +135,42 @@ export const usePlannerStore = create(
       },
 
       removeWorkout: async (id, isOnline) => {
+         const originalWorkout = get().workouts.find(w => w.id === id);
+         if (!originalWorkout) return false;
+
+        // Handle pending add action first if offline
+        if (!isOnline) {
+            const pendingActions = useOfflineQueueStore.getState().getActions();
+            const correspondingAddAction = pendingActions.find(
+                action => action.type === 'planner/addWorkout' && action.metadata?.tempId === id
+            );
+
+            if (correspondingAddAction) {
+                console.log(`[Planner] Workout ${id} was added offline. Removing add action ${correspondingAddAction.id}.`);
+                useOfflineQueueStore.getState().removeAction(correspondingAddAction.id);
+                set((state) => ({
+                    workouts: state.workouts.filter((w) => w.id !== id),
+                }));
+                return false; // Indicate action was handled locally
+            }
+        }
+        
+        // Optimistic update: filter immediately
+         set((state) => ({
+            workouts: state.workouts.filter(w => w.id !== id)
+        }));
+
          if (isOnline) {
-            const originalWorkout = get().workouts.find(w => w.id === id);
-            if (!originalWorkout) return false;
-            set((state) => ({ workouts: state.workouts.filter(w => w.id !== id) }));
              // TODO: Call server sync function here
              // await syncRemoveWorkoutToServer(id);
             console.log(`[Planner Online] Workout removed: ${id}`);
+            // Confirmation is handled by the optimistic update above
             return true;
          } else {
              useOfflineQueueStore.getState().addAction({
                 type: 'planner/removeWorkout',
                 payload: { id },
+                metadata: { tempId: id }, // Still useful for _applyQueuedUpdate logic
             });
             console.log(`[Planner Offline] Remove workout action queued for: ${id}`);
             return false; // Indicate queued
@@ -113,113 +178,113 @@ export const usePlannerStore = create(
       },
 
       getWorkoutsForDate: (date) => {
-        // Basic date matching (assumes plannedAt is full ISO string)
-        // More robust date comparison might be needed
-        return get().workouts.filter(w => w.plannedAt.startsWith(date));
+        return get().workouts.filter(w => dayjs(w.plannedAt).isSame(dayjs(date), 'day')); // Use dayjs for better matching
       },
-
-      /**
-       * Generates a weekly workout plan starting from the specified date,
-       * adds all generated workouts to the store, and returns them.
-       */
+      
       generatePlan: async (startDate, userProfile) => {
-        // If generation involves adding multiple workouts, it should handle online/offline status
-        // For simplicity now, assume generation happens online or is queued as one meta-action.
-        // A more robust approach might generate the plan locally and queue individual add actions if offline.
         console.warn("generatePlan offline queuing not fully implemented yet.");
-        
         const dateObj = dayjs(startDate).startOf('week');
-        const existingWorkouts = get().workouts; 
+        const existingWorkouts = get().workouts;
         const generatedPlan = generateWeeklyPlan({
           startDate: dateObj,
           userProfile,
           existingWorkouts,
         });
-        
         const addedWorkouts: Workout[] = [];
-        // Assume online for now for generation bulk add
-        // TODO: Refactor this loop to check online status per workout add?
+        // TODO: Handle offline status correctly when adding multiple workouts
         for (const workoutData of generatedPlan) {
-             const newWorkout = await get().addWorkout(workoutData, true); // Assuming online for now
+             const newWorkout = await get().addWorkout(workoutData, true); // Assuming online
              if (newWorkout) addedWorkouts.push(newWorkout);
         }
         return addedWorkouts;
       },
-      
-      /**
-       * Removes all workouts that fall within the specified week.
-       * Useful before regenerating a plan for a given week.
-       */
+
       clearPlanForWeek: (startDate) => {
         const weekStart = dayjs(startDate).startOf('week');
-        const weekEnd = weekStart.add(6, 'day').endOf('day');
-        
-        // Remove workouts that fall within the week
+        const weekEnd = weekStart.endOf('week'); // Use endOf('week') for clarity
         set((state) => ({
           workouts: state.workouts.filter(workout => {
             const workoutDate = dayjs(workout.plannedAt);
-            return !workoutDate.isAfter(weekStart) || !workoutDate.isBefore(weekEnd);
+            // Keep workouts outside the target week
+            return workoutDate.isBefore(weekStart) || workoutDate.isAfter(weekEnd);
           })
         }));
+        console.log(`Cleared workouts for week starting ${weekStart.format('YYYY-MM-DD')}`);
       },
 
-      // --- Internal action to apply updates --- 
-      _applyQueuedUpdate: (actionType, payload) => {
-         console.log(`[Planner Queue Apply] Applying action: ${actionType}`, payload);
+      // Internal action to apply updates from queue AFTER server sync attempt
+      _applyQueuedUpdate: (action: QueuedAction, syncSuccess: boolean, serverResponse?: any) => {
+         console.log(`[Planner Queue Apply] Applying result: ${action.type} (${action.id}), Success: ${syncSuccess}`);
+         const { type, payload, metadata } = action;
+         const tempId = metadata?.tempId; // Often the same as payload.id for updates/deletes
+         const workoutId = payload?.id || tempId;
+
          try {
-            switch (actionType) {
-                case 'planner/addWorkout': {
-                    const newWorkout: Workout = {
-                        ...(payload as Omit<Workout, 'id'>),
-                        id: uuidv4(), // Generate ID now
-                    };
-                    set((state) => ({ workouts: [...state.workouts, newWorkout] }));
-                    // TODO: Sync to server needed here after applying locally
+            switch (type) {
+                case 'planner/addWorkout':
+                    if (!tempId) return console.error('[Planner Apply] Add action missing tempId');
+                    if (syncSuccess) {
+                        const idx = get().workouts.findIndex(w => w.id === tempId);
+                        if (idx !== -1) {
+                            const permanentId = serverResponse?.id || tempId;
+                            set(state => ({
+                                workouts: state.workouts.map((w, i) => i === idx ? { ...w, id: permanentId, syncStatus: 'synced' } : w)
+                            }));
+                            console.log(`[Planner Apply] Confirmed add sync: ${permanentId}`);
+                        }
+                    } else {
+                        set(state => ({ workouts: state.workouts.map(w => w.id === tempId ? { ...w, syncStatus: 'error' } : w) }));
+                        console.error(`[Planner Apply] Failed add sync for temp ID: ${tempId}`);
+                    }
                     break;
-                }
-                 case 'planner/updateWorkout': {
-                    const { id, updates } = payload as { id: string; updates: Partial<Omit<Workout, 'id'>> };
-                    set((state) => ({
-                        workouts: state.workouts.map(w => w.id === id ? { ...w, ...updates } : w)
-                    }));
-                     // TODO: Sync to server needed here after applying locally
+                case 'planner/updateWorkout':
+                case 'planner/logWorkoutStart':
+                case 'planner/toggleWorkoutComplete':
+                    if (!workoutId) return console.error(`[Planner Apply] Action ${type} missing workout ID`);
+                    if (syncSuccess) {
+                        set(state => ({ workouts: state.workouts.map(w => w.id === workoutId ? { ...w, syncStatus: 'synced' } : w) }));
+                        console.log(`[Planner Apply] Confirmed ${type} sync for: ${workoutId}`);
+                    } else {
+                        // Revert optimistic update? More complex - depends on what was updated.
+                        // Simplest is mark as error and let user resolve.
+                        set(state => ({ workouts: state.workouts.map(w => w.id === workoutId ? { ...w, syncStatus: 'error' } : w) }));
+                        console.error(`[Planner Apply] Failed ${type} sync for: ${workoutId}`);
+                    }
                     break;
-                }
-                case 'planner/toggleWorkoutComplete': {
-                     const { id } = payload as { id: string };
-                     const originalWorkout = get().workouts.find(w => w.id === id);
-                     if (!originalWorkout) break; // Skip if workout was deleted?
-                     const completedAt = originalWorkout.completedAt ? undefined : new Date().toISOString();
-                     set((state) => ({
-                         workouts: state.workouts.map(w => w.id === id ? { ...w, completedAt } : w)
-                     }));
-                      // TODO: Sync to server needed here after applying locally
+                 case 'planner/removeWorkout':
+                    if (!workoutId) return console.error('[Planner Apply] Remove action missing workout ID');
+                     if (syncSuccess) {
+                        // Already removed optimistically, just log confirmation
+                        console.log(`[Planner Apply] Confirmed remove sync for: ${workoutId}`);
+                     } else {
+                         // Revert optimistic delete: Need to re-add the workout!
+                         // This requires having the workout data available. 
+                         // Option 1: Fetch from server (complex). 
+                         // Option 2: Store original workout in action metadata (increases storage).
+                         // Option 3: Mark as error and let user manually fix (simpler for now).
+                         console.error(`[Planner Apply] Failed remove sync for: ${workoutId}. Cannot automatically revert.`);
+                         // How to signal this failure state back to the UI? Maybe update a different store or toast?
+                         toast.error("Sync Error", { description: `Failed to remove workout ${workoutId}. Please check your plan.` });
+                     }
                     break;
-                }
-                 case 'planner/removeWorkout': {
-                    const { id } = payload as { id: string };
-                    set((state) => ({ workouts: state.workouts.filter(w => w.id !== id) }));
-                     // TODO: Sync to server needed here after applying locally
-                    break;
-                }
                 default:
-                    console.warn(`[Planner Queue Apply] Unknown action type: ${actionType}`);
+                    console.warn(`[Planner Apply] Unknown action type: ${type}`);
             }
          } catch (error) {
-             console.error(`[Planner Queue Apply] Error applying action ${actionType} for ID ${payload?.id}:`, error);
-             // Decide how to handle failed application (e.g., keep in queue? move to failed queue?)
+             console.error(`[Planner Apply] Error processing ${type} for ID ${workoutId}:`, error);
          }
       },
-
     }),
     {
-      name: 'planner-storage', // Unique name for this store
-      storage: createIdbStorage<PlannerState>(), // Use IDB storage
+      name: 'planner-storage',
+      storage: createIdbStorage<PlannerState>(),
+      // Optionally partialize if needed
+      // partialize: (state) => ({ workouts: state.workouts }),
     }
   )
 );
 
-// Example Selectors
+// Selectors (optional but helpful)
 export const selectAllWorkouts = (state: PlannerState) => state.workouts;
 export const selectCompletedWorkouts = (state: PlannerState) => state.workouts.filter(w => w.completedAt);
 export const selectPendingWorkouts = (state: PlannerState) => state.workouts.filter(w => !w.completedAt); 

@@ -5,8 +5,8 @@ import { useSearchParams, useRouter } from 'next/navigation'; // Import useSearc
 import UserProfileForm from '@/features/settings/components/UserProfileForm';
 import FitbitConnectButton from '@/features/settings/components/FitbitConnectButton';
 import { Button } from '@/components/ui/button'; // Corrected casing
-import { exportWorkoutData, exportNutritionData } from '@/lib/exportUtils'; // Import export functions
-import { useUserProfileStore } from '@/store/userProfileStore'; // Import store for updates
+import { exportWorkoutData, exportNutritionData, exportMetricsData } from '@/lib/exportUtils'; // Import export functions
+import { useUserProfileStore, selectNotificationPreferences } from '@/store/userProfileStore'; // Import store for updates and specific selector
 import { useMetricsStore } from '@/store/metricsStore'; // Import metrics store
 import { useActivityStore } from '@/store/activityStore'; // Import the new activity store
 import { TutorialModal } from '@/features/tutorials/components/TutorialModal'; // Import TutorialModal
@@ -14,14 +14,23 @@ import { nfcToolsTutorial } from '@/features/tutorials/data/nfc-tools'; // Impor
 import { fetchFitbitData } from '@/lib/fitbitActions'; // Import server action
 import { toast } from 'sonner'; // Import toast
 import type { FitbitDaily } from '@/types'; // Import the type for casting
+import { Input } from '@/components/ui/input'; // Assuming Input can be used for checkbox
+import { Label } from '@/components/ui/label'; // Assuming Label is available
+import type { NotificationPreferences } from '@/types';
+import { CsvImportButton } from '@/features/settings/components/CsvImportButton'; // Corrected import path
 
 // Placeholder components for other sections
 const NotificationSettings = () => {
     const [permission, setPermission] = useState<NotificationPermission | null>(null);
     const [isSubscribing, setIsSubscribing] = useState(false);
     const [subscription, setSubscription] = useState<PushSubscription | null>(null);
-    // Attempt to get user ID, default to placeholder if unavailable
     const appUserId = useUserProfileStore((state) => state.profile?.id ?? 'PLACEHOLDER_USER_ID_FOR_NOTIFICATIONS'); 
+    // Get preferences and update action from store
+    const rawPrefs = useUserProfileStore(selectNotificationPreferences);
+    const updateNotificationPref = useUserProfileStore((state) => state.updateNotificationPref);
+    
+    // Provide default fallback within the component
+    const notificationPrefs = rawPrefs || {}; 
 
     useEffect(() => {
         // Check initial permission state on mount
@@ -188,9 +197,14 @@ const NotificationSettings = () => {
         }
     };
 
+    const handlePrefChange = (prefKey: keyof NotificationPreferences, checked: boolean) => {
+        updateNotificationPref(prefKey, checked);
+    };
+
     return (
-        <div className="p-4 border rounded bg-white shadow space-y-3">
-            <h3 className="font-semibold">Notification Preferences</h3>
+        <div className="p-4 border rounded bg-white shadow space-y-4">
+            <h3 className="font-semibold">Push Notifications</h3>
+            {/* Permission and Subscription controls */}
             {permission === null && <p className="text-sm text-gray-500">Checking notification support...</p>}
             {permission === 'default' && (
                 <div>
@@ -200,7 +214,7 @@ const NotificationSettings = () => {
             )}
             {permission === 'granted' && !subscription && (
                  <div>
-                    <p className="text-sm text-green-600 mb-2">Notification permission granted. Ready to subscribe.</p>
+                    <p className="text-sm text-green-600 mb-2">Notification permission granted. Subscribe to enable.</p>
                      <Button onClick={subscribeToPush} disabled={isSubscribing}>{isSubscribing ? 'Subscribing...' : 'Subscribe to Push Notifications'}</Button>
                  </div>
             )}
@@ -213,7 +227,55 @@ const NotificationSettings = () => {
             {permission === 'denied' && (
                 <p className="text-sm text-red-600">Notification permission was denied. Please enable it in your browser settings if you want notifications.</p>
             )}
-            {/* Add more granular settings later (e.g., toggle types of notifications) */}
+
+            {/* Granular Preferences (Disabled if permission not granted) */}
+            <fieldset disabled={permission !== 'granted'} className="space-y-3 pt-4 border-t">
+                 <legend className="text-sm font-medium text-gray-900 mb-1">Receive notifications for:</legend>
+                 
+                 <div className="flex items-center space-x-2">
+                     <Input 
+                        type="checkbox" 
+                        id="pref-workoutReminders" 
+                        checked={!!notificationPrefs?.workoutReminders} 
+                        onChange={(e) => handlePrefChange('workoutReminders', e.target.checked)}
+                        className="h-4 w-4"
+                     />
+                     <Label htmlFor="pref-workoutReminders" className="text-sm">Workout Reminders</Label>
+                 </div>
+                 
+                 <div className="flex items-center space-x-2">
+                     <Input 
+                        type="checkbox" 
+                        id="pref-inactivityCues" 
+                        checked={!!notificationPrefs?.inactivityCues} 
+                        onChange={(e) => handlePrefChange('inactivityCues', e.target.checked)}
+                        className="h-4 w-4"
+                     />
+                     <Label htmlFor="pref-inactivityCues" className="text-sm">Inactivity Cues (e.g., Stand up)</Label>
+                 </div>
+
+                 <div className="flex items-center space-x-2">
+                     <Input 
+                        type="checkbox" 
+                        id="pref-equipmentCues" 
+                        checked={!!notificationPrefs?.equipmentCues} 
+                        onChange={(e) => handlePrefChange('equipmentCues', e.target.checked)}
+                        className="h-4 w-4"
+                     />
+                     <Label htmlFor="pref-equipmentCues" className="text-sm">Equipment Cues (e.g., Balance board)</Label>
+                 </div>
+
+                 <div className="flex items-center space-x-2">
+                     <Input 
+                        type="checkbox" 
+                        id="pref-syncStatus" 
+                        checked={!!notificationPrefs?.syncStatus} 
+                        onChange={(e) => handlePrefChange('syncStatus', e.target.checked)}
+                        className="h-4 w-4"
+                     />
+                     <Label htmlFor="pref-syncStatus" className="text-sm">Offline Sync Status</Label>
+                 </div>
+            </fieldset>
         </div>
     );
 };
@@ -237,8 +299,8 @@ const DataExportSettings = () => {
     return (
         <div className="p-4 border rounded bg-white shadow space-y-3">
             <h3 className="font-semibold mb-2">Data Export</h3>
-            <p className="text-sm text-gray-600 mb-3">Download your workout and nutrition history as JSON files.</p>
-            <div className="flex space-x-2">
+            <p className="text-sm text-gray-600 mb-3">Download your workout, nutrition, and metrics history as JSON files.</p>
+            <div className="flex flex-wrap gap-2">
                  <Button 
                      variant="secondary" 
                      size="sm" 
@@ -254,6 +316,14 @@ const DataExportSettings = () => {
                      disabled={isExporting}
                 >
                      {isExporting ? 'Exporting...' : 'Export Nutrition (.json)'}
+                 </Button>
+                 <Button 
+                     variant="secondary" 
+                     size="sm" 
+                     onClick={() => handleExport(exportMetricsData)}
+                     disabled={isExporting}
+                 >
+                     {isExporting ? 'Exporting...' : 'Export Metrics (.json)'}
                  </Button>
             </div>
         </div>
@@ -436,9 +506,16 @@ const IntegrationSettings = () => {
                         </div>
                     )}
                 </div>
+                {/* Wyze Scale / CSV Import Section */}
+                 <div className="pt-3 mt-3 border-t">
+                    <h4 className="font-medium text-sm mb-1">Wyze Scale Data (via CSV)</h4>
+                     <p className="text-gray-600 text-sm mb-2">Import your weight history exported from the Wyze app (or other sources matching the format). Required columns: 'date', 'weight'. Optional: 'bodyFatPct', 'muscleMassKg'.</p>
+                    <CsvImportButton source="WYZE" />
+                 </div>
+
                 {/* NFC Section */}
-                 <div>
-                    <h4 className="font-medium text-sm mb-1 mt-4">NFC Tag Setup</h4>
+                 <div className="pt-3 mt-3 border-t">
+                    <h4 className="font-medium text-sm mb-1">NFC Tag Setup</h4>
                     <p className="text-gray-600 text-sm mb-2">Use NFC tags for quick workout logging (requires Android & Chrome).</p>
                     <Button variant="link" size="sm" onClick={() => setIsTutorialOpen(true)} className="p-0 h-auto text-sm">
                         Learn how to write NFC tags...

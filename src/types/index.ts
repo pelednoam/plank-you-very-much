@@ -15,10 +15,20 @@ export interface Workout {
   id: string; // Consider using UUID
   type: WorkoutType;
   plannedAt: string; // ISO 8601 DateTime
-  durationMin: number;
+  durationMin: number; // Planned duration
   completedAt?: string; // ISO 8601 DateTime, indicates completion
+  startedAt?: string; // ISO 8601 DateTime, indicates start triggered by NFC/QR
   mediaIds?: string[]; // Links to MediaAsset IDs
-  notes?: string;
+  notes?: string; // Pre-workout notes or plan details
+  syncStatus?: 'pending' | 'synced' | 'error'; // For optimistic UI and offline updates
+  
+  // Fields for logging actual performance
+  actualDurationMin?: number;
+  performanceNotes?: string; // Post-workout notes, feedback
+  rating?: number; // e.g., RPE (1-10) or satisfaction (1-5)
+  // Add more specific fields as needed (e.g., sets, reps, weight for STRENGTH)
+  // distanceKm?: number; // for SWIM
+  // avgPace?: string; // for SWIM
 }
 
 export interface Meal {
@@ -31,6 +41,7 @@ export interface Meal {
   fatG: number;
   lactoseFree: boolean;
   mediaIds?: string[]; // Links to MediaAsset IDs for recipes/photos
+  syncStatus?: 'pending' | 'synced' | 'deleting' | 'error'; // For optimistic UI
 }
 
 export interface MediaAsset {
@@ -73,10 +84,27 @@ export interface Tutorial {
   estimatedMinutes: number;
 }
 
+// Type for Knowledge Base Cards (Spec Section 4.7)
+export interface KnowledgeCardData {
+  id: string; // Sluggified title or filename
+  title: string;
+  tags: string[]; // e.g., ['nutrition', 'back-safe', 'climbing']
+  markdownContent: string; // Raw markdown content
+}
+
 // Define standard activity levels
 export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
 
 // Additional types for user profile might be needed
+
+// Define notification preference types
+export interface NotificationPreferences {
+  workoutReminders?: boolean; // e.g., 30 min prior
+  inactivityCues?: boolean; // e.g., stand-up prompts
+  equipmentCues?: boolean; // e.g., balance board prompts
+  syncStatus?: boolean; // e.g., success/failure of offline sync
+}
+
 export interface UserProfile {
   id?: string; // Add optional user ID
   name: string;
@@ -91,6 +119,8 @@ export interface UserProfile {
   lactoseSensitive: boolean;
   backIssues?: boolean;
   equipment?: string[]; // e.g., ['pullup-bar', 'balance-board']
+  completedTutorials?: string[]; // Track completed tutorial IDs
+  notificationPrefs?: NotificationPreferences;
   completedOnboarding: boolean;
   fitbitUserId?: string; // Store Fitbit user ID after connection
 } 

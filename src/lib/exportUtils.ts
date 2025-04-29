@@ -1,5 +1,6 @@
 import { usePlannerStore } from '@/store/plannerStore';
 import { useNutritionStore } from '@/store/nutritionStore';
+import { useMetricsStore } from '@/store/metricsStore';
 import dayjs from 'dayjs';
 
 /**
@@ -35,10 +36,19 @@ export function exportWorkoutData(): void {
 }
 
 /**
- * Fetches all nutrition data and initiates a download.
+ * Fetches all nutrition data (meals) and initiates a download.
  */
 export function exportNutritionData(): void {
     const meals = useNutritionStore.getState().meals;
      const filename = `plankyou_nutrition_${dayjs().format('YYYYMMDD')}.json`;
     downloadJson(meals, filename);
+}
+
+/**
+ * Fetches all body metrics data and initiates a download.
+ */
+export function exportMetricsData(): void {
+    const metrics = useMetricsStore.getState().metrics;
+    const filename = `plankyou_metrics_${dayjs().format('YYYYMMDD')}.json`;
+    downloadJson(metrics, filename);
 } 

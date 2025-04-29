@@ -1,38 +1,87 @@
-'use client'; // Needed for hook
+"use client";
 
 import React from 'react';
-import { usePlannerStore } from '@/store/plannerStore';
+import { useWorkoutStore, selectTodayWorkouts } from '@/store/workoutStore';
+import type { Workout } from '@/types';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { CheckCircle2, Circle, PlayCircle, Dumbbell, Zap, Waves, PersonStanding } from 'lucide-react'; // Icons
 import dayjs from 'dayjs';
-import { Workout } from '@/types';
 
-// Helper component to display a single workout card
-const WorkoutCard = ({ workout }: { workout: Workout }) => {
-  return (
-    <div key={workout.id} className="mb-2 p-2 border rounded border-gray-200">
-        <h3 className="font-semibold text-sm">{workout.type}</h3>
-        <p className="text-xs">Duration: {workout.durationMin} min</p>
-        <p className="text-xs">Time: {dayjs(workout.plannedAt).format('h:mm A')}</p>
-        <p className={`text-xs font-medium ${workout.completedAt ? 'text-green-600' : 'text-orange-600'}`}>
-            Status: {workout.completedAt ? `Completed ${dayjs(workout.completedAt).format('h:mm A')}` : 'Pending'}
-        </p>
-        {/* TODO: Add button to toggle complete / view workout details */}
-    </div>
-  );
+// Helper to get an icon based on workout type
+const getWorkoutIcon = (type: Workout['type']) => {
+    switch (type) {
+        case 'CLIMB': return <Zap className="h-5 w-5 mr-2" />;
+        case 'SWIM': return <Waves className="h-5 w-5 mr-2" />;
+        case 'CORE': return <PersonStanding className="h-5 w-5 mr-2" />;
+        case 'STRENGTH': return <Dumbbell className="h-5 w-5 mr-2" />;
+        case 'REST': return <Circle className="h-5 w-5 mr-2 text-gray-400" />;
+        // Add MOBILITY if needed
+        default: return <Dumbbell className="h-5 w-5 mr-2" />;
+    }
 };
 
-export default function TodayWorkout() {
-  // Get today's date in YYYY-MM-DD format
-  const todayStr = dayjs().format('YYYY-MM-DD');
-  // Get workouts for today from the store
-  const todaysWorkouts = usePlannerStore((state) => state.getWorkoutsForDate(todayStr));
+const TodayWorkout: React.FC = () => {
+    const todayWorkouts = useWorkoutStore(selectTodayWorkouts);
+    const toggleWorkoutComplete = useWorkoutStore((state) => state.toggleWorkoutComplete);
 
-  return (
-    <div className="bg-white p-4 shadow rounded">
-      {todaysWorkouts.length > 0 ? (
-        todaysWorkouts.map(workout => <WorkoutCard key={workout.id} workout={workout} />)
-      ) : (
-        <p className="text-gray-500">No workouts planned for today. Enjoy your rest!</p>
-      )}
-    </div>
-  );
-} 
+    const handleToggle = (id: string) => {
+        toggleWorkoutComplete(id);
+    };
+
+    // TODO: Implement navigation or modal opening for starting a workout
+    const handleStartWorkout = (id: string) => {
+        console.log(`Start workout ${id}`);
+        // Example: router.push(`/workout/${id}`); or open a modal
+        alert('Start workout functionality not implemented yet.');
+    };
+
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle className="text-lg">Today's Activities</CardTitle>
+            </CardHeader>
+            <CardContent>
+                {todayWorkouts.length === 0 ? (
+                    <p className="text-muted-foreground">No workouts planned for today. Enjoy your rest!</p>
+                ) : (
+                    <ul className="space-y-3">
+                        {todayWorkouts.map((workout) => (
+                            <li key={workout.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-md border">
+                                <div className="flex items-center">
+                                    {getWorkoutIcon(workout.type)}
+                                    <div>
+                                        <span className="font-medium">{workout.type}</span>
+                                        <span className="text-sm text-muted-foreground ml-2">({workout.durationMin} min)</span>
+                                        {workout.completedAt && <span className="text-xs text-green-600 ml-2">(Completed)</span>}
+                                    </div>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    {/* Show Start button only if not completed */}
+                                    {!workout.completedAt && (
+                                         <Button variant="outline" size="sm" onClick={() => handleStartWorkout(workout.id)} title="Start Workout">
+                                             <PlayCircle className="h-4 w-4" />
+                                             <span className="sr-only">Start</span>
+                                         </Button>
+                                    )}
+                                    {/* Completion Toggle Button */}
+                                    <Button 
+                                        variant={workout.completedAt ? "secondary" : "ghost"}
+                                        size="sm" 
+                                        onClick={() => handleToggle(workout.id)}
+                                        title={workout.completedAt ? "Mark as Incomplete" : "Mark as Complete"}
+                                    >
+                                        {workout.completedAt ? <CheckCircle2 className="h-4 w-4 text-green-600" /> : <Circle className="h-4 w-4 text-gray-400" />}
+                                        <span className="sr-only">{workout.completedAt ? "Mark Incomplete" : "Mark Complete"}</span>
+                                    </Button>
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </CardContent>
+        </Card>
+    );
+};
+
+export default TodayWorkout; 

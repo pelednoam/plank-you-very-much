@@ -27,12 +27,25 @@ const workoutSchema = z.object({
     }),
     plannedAtDate: z.string().min(1, 'Date is required'), // YYYY-MM-DD
     plannedAtTime: z.string().min(1, 'Time is required'), // HH:mm
-    durationMin: z.number({invalid_type_error: 'Duration must be a number'})
-                    .positive('Duration must be positive')
-                    .int('Duration must be a whole number'),
+    durationMin: z.number({invalid_type_error: 'Planned duration must be a number'})
+                    .positive('Planned duration must be positive')
+                    .int('Planned duration must be a whole number'),
     mediaId: z.string().optional(), // Allow selecting one media asset
-    // notes: z.string().optional(), // Keep simple for now
-    // mediaIds: z.array(z.string()).optional(), // Add later if needed
+    notes: z.string().optional(), // Add pre-workout notes field
+    // Logging fields (optional)
+    completed: z.boolean().optional(), // Use a checkbox to mark complete
+    actualDurationMin: z.number({invalid_type_error: 'Actual duration must be a number'})
+                        .positive('Actual duration must be positive')
+                        .int('Actual duration must be a whole number')
+                        .optional()
+                        .or(z.literal('')), // Allow empty string
+    performanceNotes: z.string().optional(),
+    rating: z.number({invalid_type_error: 'Rating must be a number'})
+                .min(1, 'Rating must be at least 1')
+                .max(5, 'Rating must be at most 5')
+                .int('Rating must be a whole number')
+                .optional()
+                .or(z.literal('')), // Allow empty string
 });
 
 type WorkoutFormData = z.infer<typeof workoutSchema>;
@@ -152,6 +165,9 @@ export const WorkoutModal: React.FC<WorkoutModalProps> = ({
     const currentMediaId = watch('mediaId');
     const nfcUri = workoutToEdit ? `plankyou://workout/${workoutToEdit.id}` : null;
 
+    // Watch the completed status
+    const isCompleted = watch('completed');
+
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={isEditing ? "Edit Workout" : "Add Workout"}>
             {(currentMediaId || workoutToEdit?.mediaIds?.[0]) && (
@@ -226,6 +242,20 @@ export const WorkoutModal: React.FC<WorkoutModalProps> = ({
                     {errors.durationMin && <p className="text-red-500 text-sm mt-1">{errors.durationMin.message}</p>}
                 </div>
 
+                {/* Pre-Workout Notes */}
+                 <div>
+                     <Label htmlFor="notes">Notes (Optional)</Label>
+                     {/* Use standard textarea with Tailwind classes */}
+                     <textarea 
+                         id="notes" 
+                         {...register('notes')} 
+                         rows={2} 
+                         disabled={isSubmitting} 
+                         className="flex min-h-[60px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                     />
+                     {errors.notes && <p className="text-red-500 text-sm mt-1">{errors.notes.message}</p>}
+                </div>
+
                 {/* Media Selection Dropdown */}
                  {selectedType && selectedType !== 'REST' && availableMedia.length > 0 && (
                     <div>
@@ -252,6 +282,32 @@ export const WorkoutModal: React.FC<WorkoutModalProps> = ({
                             )}
                         />
                          {errors.mediaId && <p className="text-red-500 text-sm mt-1">{errors.mediaId.message}</p>}
+                    </div>
+                )}
+
+                {/* --- Log Fields (conditionally shown/enabled) --- */}
+                 {isEditing && (
+                    <div className="pt-4 border-t mt-4 space-y-4">
+                         <h4 className="text-sm font-medium text-gray-600">Log Performance</h4>
+                         {/* ... Completed Checkbox ... */}
+
+                        {/* ... Actual Duration ... */}
+
+                        {/* Performance Notes */}
+                         <div className={!isCompleted ? 'opacity-50' : ''}>
+                             <Label htmlFor="performanceNotes">Performance Notes</Label>
+                             {/* Use standard textarea with Tailwind classes */}
+                             <textarea 
+                                id="performanceNotes" 
+                                {...register('performanceNotes')} 
+                                rows={3} 
+                                disabled={isSubmitting || !isCompleted} 
+                                className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                            />
+                            {errors.performanceNotes && <p className="text-red-500 text-sm mt-1">{errors.performanceNotes.message}</p>}
+                        </div>
+
+                        {/* ... Rating ... */}
                     </div>
                 )}
 
