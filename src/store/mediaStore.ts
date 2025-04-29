@@ -4,6 +4,39 @@ import { v4 as uuidv4 } from 'uuid';
 import type { MediaAsset } from '@/types';
 import { createIdbStorage } from '@/lib/idbStorage';
 
+// Placeholder data based on Spec Section 7
+const placeholderMedia: MediaAsset[] = [
+    {
+        id: 'plank-demo-gif', // Example ID
+        type: 'GIF',
+        url: '/media/exercises/plank-form.gif', // Placeholder path
+        description: 'Proper plank form demonstration.',
+        tags: ['core', 'plank', 'form', 'back-safe']
+    },
+    {
+        id: 'pullup-demo-video', 
+        type: 'VIDEO',
+        url: '/media/exercises/pullup-demo.mp4',
+        thumbnail: '/media/exercises/pullup-thumb.jpg',
+        description: 'Pull-up technique video.',
+        tags: ['strength', 'pullup']
+    },
+    {
+        id: 'meal-smoothie-image',
+        type: 'IMAGE',
+        url: '/media/meals/protein-smoothie.jpg',
+        description: 'Lactose-free protein smoothie.',
+        tags: ['meal', 'protein', 'lactose-free', 'quick']
+    },
+    {
+        id: 'meal-salad-image',
+        type: 'IMAGE',
+        url: '/media/meals/chicken-salad.jpg',
+        description: 'Grilled chicken salad with greens.',
+        tags: ['meal', 'protein', 'lunch']
+    }
+];
+
 interface MediaState {
   assets: MediaAsset[];
   addAsset: (assetData: Omit<MediaAsset, 'id'>) => MediaAsset;
@@ -13,30 +46,10 @@ interface MediaState {
   loadInitialAssets: (initialAssets: MediaAsset[]) => void;
 }
 
-// Define some initial placeholder assets (replace with actual data)
-const initialMediaAssets: MediaAsset[] = [
-  {
-    id: 'vid-plank-standard',
-    type: 'VIDEO',
-    url: '/media/videos/plank-standard.mp4',
-    thumbnail: '/media/thumbnails/plank-standard.jpg',
-    description: 'Standard Plank - Maintain a straight line from head to heels.',
-    tags: ['core', 'plank', 'beginner', 'back-safe'],
-  },
-  {
-    id: 'gif-cat-cow',
-    type: 'GIF',
-    url: '/media/gifs/cat-cow.gif',
-    description: 'Cat-Cow Stretch - Mobilize the spine gently.',
-    tags: ['mobility', 'back-safe', 'warmup'],
-  },
-  // Add more assets for climbing, swimming, other core exercises, meals etc.
-];
-
 export const useMediaStore = create(
   persist<MediaState>(
     (set, get) => ({
-      assets: initialMediaAssets, // Initialize with predefined assets
+      assets: placeholderMedia,
 
       addAsset: (assetData) => {
         const newAsset: MediaAsset = {
@@ -48,7 +61,7 @@ export const useMediaStore = create(
       },
 
       getAssetById: (id) => {
-        return get().assets.find(a => a.id === id);
+        return get().assets.find(asset => asset.id === id);
       },
 
       findAssetsByTag: (tag) => {
@@ -66,13 +79,11 @@ export const useMediaStore = create(
 
     }),
     {
-      name: 'media-storage',
+      name: 'media-asset-storage',
       storage: createIdbStorage<MediaState>(),
-      // Optionally, prevent initial assets from being overwritten on rehydration if they are static
-      // merge: (persistedState, currentState) => { ... custom merge logic ... }
     }
   )
 );
 
 // Selectors
-export const selectAllMediaAssets = (state: MediaState) => state.assets; 
+export const selectAllAssets = (state: MediaState) => state.assets; 

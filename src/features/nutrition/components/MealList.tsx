@@ -4,7 +4,8 @@ import React from 'react';
 import { useNutritionStore } from '@/store/nutritionStore';
 import type { Meal } from '@/types';
 import dayjs from 'dayjs';
-import { Button } from '@/components/ui/Button'; // For potential delete button
+import { Button } from '@/components/ui/Button';
+import MealMediaDisplay from '@/features/media/components/MealMediaDisplay';
 
 interface MealListProps {
     date: string; // YYYY-MM-DD
@@ -27,28 +28,32 @@ const MealList: React.FC<MealListProps> = ({ date }) => {
     return (
         <div className="space-y-3">
             {meals.map((meal) => (
-                <div key={meal.id} className="p-3 border rounded shadow bg-white flex justify-between items-center">
-                    <div>
+                <div key={meal.id} className="p-3 border rounded shadow bg-white flex justify-between items-start gap-3">
+                    <MealMediaDisplay mediaIds={meal.mediaIds} className="w-14 h-14 flex-shrink-0" />
+
+                    <div className="flex-grow">
                          <p className="text-sm text-gray-500">{dayjs(meal.timestamp).format('HH:mm')}</p>
-                         <p className="font-medium">
+                         <p className="font-medium text-sm">
                              {meal.kcal.toFixed(0)} kcal,
                              P: {meal.proteinG.toFixed(0)}g,
                              C: {meal.carbsG.toFixed(0)}g,
                              F: {meal.fatG.toFixed(0)}g
                              {meal.lactoseFree && <span className="ml-2 text-xs text-green-600">(LF)</span>}
                          </p>
-                         {/* Add description display if needed */}
+                         {meal.description && <p className="text-xs text-gray-600 mt-1">{meal.description}</p>}
                     </div>
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDelete(meal.id)}
-                        aria-label="Delete meal"
-                        className="text-red-500 hover:text-red-700"
-                       >
-                       🗑️
-                    </Button>
-                     {/* TODO: Add Edit button later */}
+                     <div className="flex-shrink-0">
+                         <Button
+                             variant="ghost"
+                             size="sm"
+                             onClick={() => handleDelete(meal.id)}
+                             aria-label="Delete meal"
+                             className="text-red-500 hover:text-red-700 p-1 h-auto"
+                           >
+                           🗑️
+                         </Button>
+                         {/* TODO: Add Edit button later */}
+                    </div>
                 </div>
             ))}
         </div>

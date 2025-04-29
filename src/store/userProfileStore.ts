@@ -3,30 +3,52 @@ import { persist } from 'zustand/middleware';
 import type { UserProfile } from '@/types';
 import { createIdbStorage } from '@/lib/idbStorage';
 
-interface UserProfileState {
-  profile: UserProfile | null;
+// Add completedTutorials to UserProfile type if not already present in types/index.ts
+// (Assuming UserProfile might eventually look like this)
+// interface UserProfile {
+//   ...
+//   completedTutorials?: string[];
+// }
+
+// Define the shape of the state we actually want to persist
+interface PersistedUserProfileState {
+    profile: UserProfile | null;
+    completedTutorials: string[];
+}
+
+// Define the full state including actions
+interface UserProfileState extends PersistedUserProfileState {
+  // profile and completedTutorials inherited
   setProfile: (profileData: UserProfile) => void;
   completeOnboarding: (profileData: Omit<UserProfile, 'completedOnboarding'>) => void;
   updateSettings: (settingsData: Partial<UserProfile>) => void;
   clearProfile: () => void;
+  markTutorialComplete: (tutorialId: string) => void;
+  hasCompletedTutorial: (tutorialId: string) => boolean;
 }
 
-// Default initial state - adjust as needed
+// Default initial state
 const defaultProfile: UserProfile = {
   name: '',
-  lactoseSensitive: false, // Assuming false by default
+  lactoseSensitive: false,
   completedOnboarding: false,
 };
 
-export const useUserProfileStore = create(
-  persist<UserProfileState>(
-    (set) => ({
-      profile: defaultProfile, // Initialize with default, persistence will overwrite if exists
+const initialState: PersistedUserProfileState = {
+    profile: defaultProfile,
+    completedTutorials: [],
+};
 
+export const useUserProfileStore = create<UserProfileState>()(
+  // Persist only the PersistedUserProfileState part
+  persist(
+    (set, get) => ({
+      ...initialState, // Initialize with persisted shape
+
+      // Actions defined on the full state shape
       setProfile: (profileData) => set({ profile: profileData }),
 
       completeOnboarding: (profileData) => set((state) => ({
-        // Ensure we don't wipe existing profile data when completing onboarding
         profile: { ...(state.profile || defaultProfile), ...profileData, completedOnboarding: true }
       })),
 
@@ -34,17 +56,31 @@ export const useUserProfileStore = create(
         profile: state.profile ? { ...state.profile, ...settingsData } : null
       })),
 
-      clearProfile: () => set({ profile: defaultProfile }), // Reset to default on clear
+      clearProfile: () => set({ ...initialState, profile: defaultProfile }), // Reset persisted state
 
-      // NOTE: No need for explicit initialization action, `persist` handles it.
+      markTutorialComplete: (tutorialId) => set((state) => {
+          if (state.completedTutorials.includes(tutorialId)) {
+              return {};
+          }
+          return { completedTutorials: [...state.completedTutorials, tutorialId] };
+      }),
+      
+      hasCompletedTutorial: (tutorialId) => {
+          return get().completedTutorials.includes(tutorialId);
+      },
 
     }),
     {
-      name: 'user-profile-storage', // Unique name for this store's persisted data
-      storage: createIdbStorage<UserProfileState>(), // Use the creator function to get a properly typed storage instance
+      name: 'user-profile-storage',
+      storage: createIdbStorage<PersistedUserProfileState>(), // Storage uses persisted shape
+      // Partialize function correctly maps full state to persisted shape
+      partialize: (state): PersistedUserProfileState => ({ 
+          profile: state.profile, 
+          completedTutorials: state.completedTutorials 
+      }),
     }
   )
 );
 
-// Selector example (optional, but good practice)
+// Selectors remain the same, operating on the full UserProfileState
 export const selectIsOnboardingComplete = (state: UserProfileState) => state.profile?.completedOnboarding ?? false; 

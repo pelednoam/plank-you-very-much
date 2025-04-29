@@ -21,77 +21,61 @@ This project follows the specifications outlined in [`Technical-Specification-an
 *   **Charts:** Recharts
 *   **Date Handling:** Day.js
 *   **Data Persistence:** IndexedDB via `idb` library
+*   **Markdown Rendering:** `unified`, `remark-parse`, `remark-html`
 *   **Testing:** Jest + React Testing Library (Unit/Component), Cypress (E2E)
-*   **PWA:** `@ducanh2912/next-pwa` (or similar)
+*   **PWA:** `@ducanh2912/next-pwa`
 *   **Other Libraries:** `uuid`, `@dnd-kit/*`, `lucide-react`
 
-## 3. Current Status (as of 2025-04-28 - Updated)
+## 3. Current Status (as of 2025-04-28 - Iteration 3)
 
-### Implemented Features (v1.0 Foundation + Recent Progress)
+### Implemented Features
 
-*   **Project Setup:** Initialized using Next.js App Router (`create-next-app` with `--src-dir`, `--ts`, `--tailwind`, `--eslint`).
-*   **Dependencies:** Core dependencies installed (see `package.json` and Section 18 of Spec).
-*   **Directory Structure:** Aligned with spec (Section 6), adapted for Next.js App Router conventions (`src/app`, `src/components`, `src/features`, `src/lib`, `src/store`, `src/types`, `cypress/`, `media/`). Redundant `peakform/` and `MealLogger.tsx` removed.
-*   **Data Types:** Core TypeScript interfaces defined in `src/types/index.ts` based on Section 7.
-*   **State Management:**
-    *   Zustand stores created for `UserProfile`, `Planner` (Workouts), `Metrics`, `Nutrition` (Meals), and `MediaAssets`.
-    *   Persistence configured for all core stores using `idbStorage` adapter, saving state to IndexedDB.
-*   **Routing & Layout:**
-    *   Basic application layout defined in `src/app/layout.tsx`.
-    *   Shared `<Header />` and `<Sidebar />` components created (`src/components/layout/`).
-    *   Reusable `<Modal />` component created (`src/components/ui/`).
-    *   Pages created for all main routes (`/`, `/onboard`, `/planner`, `/nutrition`, `/knowledge`, `/settings`).
-*   **UI Components:** Basic reusable components created in `src/components/ui/` (`<Button />`, `<Input />`, `<Label />`, `<Select />`, `<SelectOption />`).
-*   **Onboarding Feature:**
-    *   Multi-step form (`src/features/onboarding/components/OnboardingForm.tsx`) implemented using React Hook Form and Zod.
-    *   Captures basic profile info, goals, and preferences.
-    *   Saves data to `useUserProfileStore` and marks onboarding complete.
-    *   `/onboard` page redirects to `/` if onboarding is already complete.
-    *   Sidebar link for onboarding is conditionally rendered.
-*   **Dashboard Implementation (Connected):**
-    *   Dashboard components (`<MetricCards />`, `<ProgressChart />`, `<TodayWorkout />`) created in `src/components/dashboard/`.
-    *   `<MetricCards />` connected to `useMetricsStore` and `useUserProfileStore` to display dynamic, persisted data, **including calculated BMR, TDEE, Calorie Target, and Protein Target**.
-    *   Integrated into the main dashboard page (`src/app/page.tsx`).
-*   **Planner UI (Interactive):**
-    *   `<WeeklyCalendarView />` component created (`src/features/planner/components/`) displaying days and workouts from the store.
-    *   Integrated into the planner page (`src/app/planner/page.tsx`).
-    *   `<WorkoutModal />` component created (`src/features/planner/components/WorkoutModal.tsx`) using core UI components for adding/editing workouts, integrated with `WeeklyCalendarView`.
-    *   Drag-and-drop functionality implemented in `WeeklyCalendarView` using `@dnd-kit` for rescheduling workouts.
-    *   Basic weekly plan generation utility (`src/lib/plannerUtils.ts`) created based on spec rules (Algo 4).
-    *   Plan generation action added to `plannerStore` and triggered by a button in `WeeklyCalendarView`.
-*   **Core Algorithms (Integrated):**
-    *   Utility functions created in `src/lib/calculationUtils.ts` for BMR (Harris-Benedict), TDEE (placeholder multiplier), Calorie Target (fixed deficit), and Protein Target (LBM-based) as per Spec Section 8, Algos 1-3.
-    *   **Calculations integrated into the Dashboard's `<MetricCards />` and Nutrition's `<MacroProgress />` components.**
-*   **Nutrition Implementation (Basic):**
-    *   Nutrition page (`src/app/nutrition/page.tsx`) created.
-    *   `<MealLogForm />` component implemented for logging meal macros (`src/features/nutrition/components/`).
-    *   `<MacroProgress />` component implemented to display daily totals vs calculated targets (`src/features/nutrition/components/`).
-    *   `<MealList />` component implemented to display and delete logged meals for the day (`src/features/nutrition/components/`).
-*   **Settings Implementation (Basic):**
-    *   Settings page (`src/app/settings/page.tsx`) created.
-    *   `<UserProfileForm />` component implemented for editing core profile data (`src/features/settings/components/`).
-    *   Placeholder sections added for Notifications, Data Export, and Integrations.
+*   **Project Setup:** Initialized using Next.js App Router (`create-next-app` with `--src-dir`, `--ts`, `--tailwind`, `--eslint`). Core dependencies installed.
+*   **Directory Structure:** Aligned with spec (Section 6), adapted for Next.js App Router conventions.
+*   **Data Types:** Core TypeScript interfaces defined (`src/types/index.ts`).
+*   **State Management:** Zustand stores created and configured with IndexedDB persistence for `UserProfile`, `Planner`, `Metrics`, `Nutrition`, and `MediaAssets`.
+*   **Routing & Layout:** Basic layout (`layout.tsx`), shared components (`<Header />`, `<Sidebar />`, `<Modal />`), pages created for all main routes.
+*   **UI Components:** Basic reusable components created (`<Button />`, `<Input />`, `<Label />`, `<Select />`, `<SelectOption />`).
+*   **Onboarding:** Multi-step form implemented, saves to store, handles completion state.
+*   **Dashboard:** Displays dynamic metrics from stores, including calculated BMR, TDEE, Calorie Target, and Protein Target.
+*   **Planner:** Interactive weekly calendar view with drag-and-drop rescheduling. Add/Edit workout modal implemented. **Enhanced weekly plan generation** logic considering back issues and workout distribution.
+*   **Core Algorithms:** BMR, TDEE, Calorie/Protein targets implemented and integrated into UI. **TDEE calculation now uses dynamic activity level** from user profile.
+*   **Nutrition:** Meal logging form, macro progress bars (vs calculated targets), and daily meal list with delete functionality.
+*   **Settings:** User profile editing form (including activity level), basic notification permission request UI, **data export functionality** (workouts, nutrition to JSON), placeholders for integrations.
+*   **PWA:** Basic setup configured using `@ducanh2912/next-pwa` and `manifest.json`.
+*   **Fitbit Integration (Initial):** Connect button implemented (redirects for OAuth), API callback route created (exchanges code for token), client-side handling of redirect parameters added to Settings page.
+*   **Knowledge Base:** Basic page created, displays hardcoded `KnowledgeCard` components.
+*   **Media Library (Initial):** `useMediaStore` created, `MealMediaDisplay` component implemented and integrated into `MealList` to show thumbnails. `ExerciseVideo` component created.
+*   **Guided Tutorials (Initial):** `TutorialModal` component created (renders markdown), NFC Tools tutorial data added, tutorial completion tracked in `userProfileStore`, trigger added to Settings page.
+*   **Testing:** Basic Jest + React Testing Library setup configured, sample unit test created.
 
 ### Missing Features / Next Steps (Prioritized)
 
-*   **Planner Implementation (Refinements):**
-    *   **Enhance Plan Generation:** Improve workout distribution logic (e.g., avoid back-to-back intensity), consider user busy blocks (requires placeholder/integration), add STRENGTH workouts based on profile. (Spec Section 8 Algo 4 enhancements).
-*   **Core Algorithms (Refinement):**
-    *   Refine TDEE calculation using a dynamic activity multiplier (e.g., from user settings or Fitbit data). Implement Activity Level setting in `UserProfileForm`.
-*   **Settings Implementation (Full):**
-    *   Implement UI/logic for Notification Preferences (Spec Section 11).
-    *   Implement Data Export functionality (Spec Section 4.9).
-    *   Implement Integration triggers (Fitbit Connect Button - Spec Section 8A, NFC Help Link - Spec Section 8D).
-*   **Knowledge Base Implementation:** Build UI (`/knowledge`) to display `KnowledgeCard` components (Spec Section 4.7).
-*   **Media Library Integration:** Populate `useMediaStore` with actual assets (or load from config), implement `ExerciseVideo`/`MealGallery` components, link from Workouts/Meals (Spec Section 4.10, 4.11, 7 `MediaAsset`).
-*   **Notifications:** Implement basic Web Push notifications via Service Worker (Spec Section 4.8, 11). Implement Equipment Cues (standing desk prompts, balance board timer - Spec Section 4.4).
-*   **PWA Setup:** Configure `@ducanh2912/next-pwa` (or similar) for service worker, offline caching, install prompt (Spec Section 15).
-*   **Fitbit Integration (v1.1):** Implement OAuth flow, callback handler (API Route/Server Action), data sync logic (Spec Section 8A).
-*   **NFC Triggers (v1.1+):** Implement Web NFC scanning, routing logic (Spec Section 8B). Requires `NfcTag` store. Implement QR code fallback for iOS (Spec Section 8E).
-*   **Guided Tutorials (v1.1+):** Implement Tutorial components & content (Spec Section 8D). Requires Tutorial progress store.
-*   **Testing:** Write comprehensive unit, component, and E2E tests (Spec Section 13).
-*   **CI/CD:** Finalize GitHub Actions workflow (Spec Section 14).
-*   **Styling & UX Refinements:** Apply consistent styling, improve accessibility (Spec Section 12).
+*   **Fitbit Integration (Full - v1.1 Target):**
+    *   Secure token storage (access & refresh tokens).
+    *   Implement token refresh logic.
+    *   Implement data synchronization logic (fetch daily activity/sleep from Fitbit API).
+    *   Implement disconnect functionality (revoke token, clear state).
+*   **Notifications (Full):**
+    *   Implement Service Worker `push` event handler to display notifications.
+    *   Implement backend mechanism for storing push subscriptions and sending messages (requires VAPID keys).
+    *   Implement specific notification triggers (workout reminders, hydration, posture cues - Spec Section 4.4, 11).
+*   **NFC Triggers (v1.1+):**
+    *   Implement Web NFC scanning logic (Android/Chrome - Spec Section 8B).
+    *   Implement routing based on scanned tag URI.
+    *   Create `NfcTag` store/management UI.
+    *   Implement QR code generation/fallback for iOS (Spec Section 8E).
+*   **Media Library Integration (Full):**
+    *   Load actual media assets (videos, gifs, images) - requires adding assets to `/media/`.
+    *   Integrate `ExerciseVideo` into workout displays/modal.
+    *   Implement media selection UI within `WorkoutModal` and `MealLogForm`.
+    *   Implement `MealGallery` component (Spec Section 4.11).
+*   **Settings Implementation (Full):** Implement UI/logic for granular Notification Preferences (Spec Section 11).
+*   **Testing:** Write comprehensive unit, component, and E2E tests for all major features (Spec Section 13).
+*   **Styling & UX Refinements:** Apply consistent styling, improve accessibility (WCAG), add PWA icons, implement better loading/empty states, add toast notifications (Spec Section 12).
+*   **CI/CD:** Finalize GitHub Actions workflow for automated testing and deployment (Spec Section 14).
+*   **Knowledge Base (Full):** Implement dynamic data loading, filtering/search functionality.
+*   **AI Plan Regeneration (v2.0):** Integrate with OpenAI API (or similar) for dynamic plan adjustments based on progress/feedback (Spec Section 17).
 
 ## 4. Getting Started
 
@@ -105,16 +89,22 @@ This project follows the specifications outlined in [`Technical-Specification-an
     pnpm install
     ```
 3.  **Environment Variables:**
-    Create a `.env.local` file in the root directory and add necessary variables (see Section 16 of the spec, e.g., `NEXT_PUBLIC_APP_NAME`). For Fitbit integration, you'll need `NEXT_PUBLIC_FITBIT_CLIENT_ID`, `NEXT_PUBLIC_FITBIT_REDIRECT_URI`, and `FITBIT_CLIENT_SECRET`.
+    Create a `.env.local` file in the root directory. Add `NEXT_PUBLIC_APP_NAME`. For Fitbit integration, add `NEXT_PUBLIC_FITBIT_CLIENT_ID`, `FITBIT_CLIENT_SECRET`, `NEXT_PUBLIC_FITBIT_REDIRECT_URI`. For push notifications (later), add `NEXT_PUBLIC_VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`.
 4.  **Run the development server:**
     ```bash
     pnpm dev
     ```
     The application should be available at `http://localhost:3000`.
 
-5.  **Run Tests (Setup Required):**
-    *   **Jest (Unit/Component):** `pnpm test` (Requires Jest configuration: `jest.config.js`, `jest.setup.js`)
-    *   **Cypress (E2E):** `pnpm exec cypress open` (Requires initial Cypress setup)
+5.  **Run Tests:**
+    ```bash
+    pnpm test
+    ```
+    (Requires Jest setup - completed)
+    ```bash
+    pnpm exec cypress open
+    ```
+    (Requires initial Cypress setup)
 
 ## 5. Contribution
 

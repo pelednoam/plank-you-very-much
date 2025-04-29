@@ -28,7 +28,10 @@
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.56.1",
     "recharts": "^2.15.3",
+    "remark-html": "^16.0.1",
+    "remark-parse": "^11.0.0",
     "tailwind-merge": "^3.2.0",
+    "unified": "^11.0.5",
     "uuid": "^11.1.0",
     "zod": "^3.24.3",
     "zustand": "^5.0.3"
@@ -36,6 +39,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
+    "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "@types/jest": "^29.5.14",
     "@types/node": "^20",
