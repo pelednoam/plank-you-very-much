@@ -1,34 +1,16 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { dbSaveSubscription } from '@/lib/notificationSubscriptionStorage'; // Import placeholder storage
+import { kv } from '@vercel/kv'; // Import Vercel KV
 import type { PushSubscription } from 'web-push'; // Use type only
+import { getCurrentUserId } from '@/lib/auth'; // Import placeholder auth function
 
 // TODO: Replace placeholder logic with actual database storage (e.g., Vercel KV, Supabase, MongoDB)
 // TODO: Implement proper validation for subscription object and userId
 // TODO: Implement robust error handling
 // TODO: Implement authentication to validate userId
 
-// Placeholder function to simulate saving subscription to a database
-// In reality, this would involve encrypting the subscription details
-// and associating them with the validated userId in your database.
-async function saveSubscriptionToDb(userId: string, subscription: PushSubscription) {
-    console.log(`[API SUBSCRIBE PLACEHOLDER] Saving subscription for userId: ${userId}`);
-    console.log("Subscription details:", JSON.stringify(subscription));
-    // Example DB interaction (replace with actual DB client):
-    // try {
-    //     await db.userSubscriptions.upsert({
-    //         where: { endpoint: subscription.endpoint },
-    //         update: { userId: userId, auth: subscription.keys?.auth, p256dh: subscription.keys?.p256dh },
-    //         create: { userId: userId, endpoint: subscription.endpoint, auth: subscription.keys?.auth, p256dh: subscription.keys?.p256dh },
-    //     });
-    //     console.log(`[API SUBSCRIBE] Subscription saved for user ${userId}.`);
-    //     return true;
-    // } catch (error) {
-    //     console.error(`[API SUBSCRIBE] Error saving subscription for user ${userId}:`, error);
-    //     return false;
-    // }
-    return true; // Simulate success
-}
+// Key structure in KV: subscriptions:user:<userId> -> Set<stringified PushSubscription>
+const getUserSubscriptionsKey = (userId: string) => `subscriptions:user:${userId}`;
 
 // Basic validation for subscription object keys
 function isValidSubscription(sub: any): sub is PushSubscription {
@@ -36,39 +18,57 @@ function isValidSubscription(sub: any): sub is PushSubscription {
 }
 
 /**
- * Stores a push subscription associated with a user.
- * Expects POST request with JSON body: { subscription: PushSubscription, userId: string }
+ * Stores a push subscription associated with the current user.
+ * Expects POST request with JSON body: { subscription: PushSubscription }
  */
 export async function POST(request: NextRequest) {
+    let userId: string | null = null;
     try {
+        // --- Authentication --- 
+        // TODO: Replace with actual authentication
+        userId = await getCurrentUserId(); 
+        if (!userId) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+        // --- End Authentication ---
+
         const body = await request.json();
         const subscription = body.subscription;
-        const userId = body.userId; // Assuming client sends this
 
         // --- Validation ---
-        if (!userId || typeof userId !== 'string') {
-            console.warn('[API Subscribe] Invalid or missing userId:', userId);
-             return NextResponse.json({ error: 'Missing or invalid user ID' }, { status: 400 });
-        }
-
         if (!isValidSubscription(subscription)) {
-             console.warn('[API Subscribe] Invalid subscription object received:', subscription);
+             console.warn(`[API Subscribe] Invalid subscription object received for user ${userId}:`, subscription);
             return NextResponse.json({ error: 'Invalid subscription object' }, { status: 400 });
         }
         // --- End Validation ---
 
-        // Replace with actual user verification logic if needed
-        console.log(`[API Subscribe] Received subscription for user ${userId}, endpoint: ${subscription.endpoint}`);
+        const userSubsKey = getUserSubscriptionsKey(userId);
+        const subscriptionString = JSON.stringify(subscription);
 
-        // Use the placeholder storage function
-        await dbSaveSubscription(userId, subscription);
+        console.log(`[API Subscribe] Adding subscription for user ${userId}, endpoint: ${subscription.endpoint}`);
+
+        // Add the stringified subscription to the user's set in KV
+        const added = await kv.sadd(userSubsKey, subscriptionString);
+
+        if (added > 0) {
+             console.log(`[API Subscribe] Successfully added subscription for user ${userId}.`);
+        } else {
+             console.log(`[API Subscribe] Subscription already existed for user ${userId}.`);
+        }
+
+        // Optional: Set an expiration for the key if desired, though subscriptions can be long-lived
+        // await kv.expire(userSubsKey, 60 * 60 * 24 * 90); // 90 days? Needs consideration
 
         return NextResponse.json({ message: 'Subscription saved successfully' }, { status: 201 });
 
     } catch (error) {
-        console.error('[API Subscribe] Error processing subscription:', error);
+        console.error(`[API Subscribe] Error processing subscription for user ${userId ?? 'UNKNOWN'}:`, error);
          if (error instanceof SyntaxError) {
              return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+         }
+         // Handle potential KV errors specifically? E.g., check error.message
+         if (error instanceof Error && error.message.includes('KV error')) { // Example check
+            return NextResponse.json({ error: 'Storage error saving subscription' }, { status: 503 }); // Service Unavailable
          }
         return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }

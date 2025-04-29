@@ -15,93 +15,125 @@ This project aims to follow the specifications outlined in [`Technical-Specifica
 ## 2. Tech Stack (Current)
 
 *   **Framework:** Next.js 14 (React 18) + TypeScript _(As specified, using **App Router**)_
+*   **Authentication:** **NextAuth.js v5 (Auth.js)** with Google, GitHub, and Credentials providers _(Added)_
 *   **Styling:** Tailwind CSS + **shadcn/ui** _(Spec mentioned Tailwind; `shadcn/ui` added)_
 *   **State Management:** Zustand (with IndexedDB persistence via `idb-keyval`) _(As specified)_
 *   **Forms:** React Hook Form + **Zod** _(Spec mentioned RHF; `Zod` added)_
 *   **Charts:** Recharts _(As specified)_
 *   **Date Handling:** Day.js _(As specified)_
-*   **Data Persistence:** IndexedDB via `idb-keyval` library _(As specified, library differs slightly)_
+*   **Data Persistence:** IndexedDB via `idb-keyval` library; **Vercel KV** for Auth sessions via `@auth/upstash-redis-adapter` _(KV added for Auth)_
 *   **Markdown:** `gray-matter`, `react-markdown` + `remark-gfm` _(Implementation choices)_
 *   **Integrations:** Fitbit Web API (OAuth 2.0), Google Health Connect / Apple HealthKit (Pending), Web NFC API (Pending) _(As specified)_
 *   **Testing:** Jest + React Testing Library _(As specified; **Cypress E2E pending**)_
 *   **PWA:** `@serwist/next` _(Implementation choice)_
 *   **Other Libraries:** `uuid`, `lucide-react` (icons), `sonner` (toasts), `core-js` (polyfills) _(Implementation choices)_
 
-## 3. Current Status (as of YYYY-MM-DD - Update Date)
+## 3. Current Status (as of latest update)
 
 ### Implemented Features (Highlights & Deviations from Spec)
 
 *   **Project Setup:** Next.js **App Router** structure, TypeScript, Tailwind, ESLint.
     *   **Deviation:** Spec proposed Pages Router structure (Section 6).
+*   **Authentication (NextAuth.js v5):** _(Added - Spec implied need but didn't detail)_
+    *   Core setup with root `auth.config.ts` and `auth.ts`.
+    *   Providers configured: **Google**, **GitHub**, **Credentials** (with **placeholder `authorize` function**).
+    *   Session storage using **Vercel KV** via `@auth/upstash-redis-adapter`.
+    *   API route handler (`/api/auth/[...nextauth]/route.ts`) created.
+    *   `getCurrentUserId` function (`src/lib/auth.ts`) implemented to retrieve user ID from session.
+    *   **Deviation:** Uses NextAuth.js v5 (Auth.js), which wasn't specified. Spec 8A mentioned Fitbit env vars assuming NextAuth, but didn't specify version or setup. Session storage uses KV via Upstash adapter (compatible) instead of a specific DB choice.
 *   **Data Types:** Core interfaces defined (`src/types/index.ts`).
-    *   **Deviation:** Some specific fields differ from Spec Section 7 (e.g., `Workout` has `completedAt`, `performanceRating`). `UserProfile` and other store-specific types added.
+    *   **Deviation:** Some specific fields differ from Spec Section 7. `UserProfile` and other store-specific types added.
 *   **State Management (Zustand + IndexedDB):** Core stores (`userProfileStore`, `metricsStore`, `activityStore`, `offlineQueueStore`, `plannerStore`) created using `idbStorage` from `zustand/middleware`.
-    *   **Offline Queue Store (`offlineQueueStore`):** Implemented for offline action queuing.
-    *   **Planner Store (`plannerStore`):** Handles plan generation and workout updates with optimistic UI and offline queuing.
-    *   **Deviation:** Uses `idb-keyval` via Zustand middleware, not raw `idb` (Spec Section 5). Requires `partialize` for non-serializable data.
-*   **Offline Sync Manager:** Basic manager (`src/lib/offlineSyncManager.ts`) processes `offlineQueueStore` when online (simulated backend).
-*   **Routing & Layout:** Basic App Router layout (`src/app/layout.tsx`) and core pages implemented (matching Spec Section 9).
+    *   **Offline Queue Store (`offlineQueueStore`):** Implemented.
+    *   **Planner Store (`plannerStore`):** Handles plan generation, workout updates (optimistic UI, offline queuing).
+    *   **Deviation:** Uses `idb-keyval` via Zustand middleware, not raw `idb`.
+*   **Offline Sync Manager:** Basic manager (`src/lib/offlineSyncManager.ts`) processes queue (simulated backend).
+*   **Routing & Layout:** Basic App Router layout and core pages implemented.
 *   **UI Components (shadcn/ui):** Core components added.
 *   **Onboarding Flow (`/onboard`):** Implemented (Spec Feature 4.1).
-*   **Dashboard (`/`):** Implemented with charts and today's workouts (Spec Feature 4.6). Workout items link to details modal.
-*   **Nutrition (`/nutrition`):** Meal logging and macro progress implemented (Spec Feature 4.5). Targets use goal parameters (Spec Feature 4.2 partially addressed).
-*   **Planner (`/planner`):** Monthly calendar view, basic weekly plan generation (`generateWeeklyPlan`). Workout items link to details modal.
-    *   **Added:** Workout duration adjustment based on goals (partially addresses Spec Feature 4.3).
+*   **Dashboard (`/`):** Implemented (Spec Feature 4.6).
+*   **Nutrition (`/nutrition`):** Implemented (Spec Feature 4.5).
+*   **Planner (`/planner`):** Basic implementation.
+    *   **Added:** Workout duration adjustment based on goals.
     *   **Deviation:** Full dynamic/adaptive plan generation is **missing** (Spec Feature 4.3, Algorithm 8.4).
-*   **Workout Logging:** Added `WorkoutDetailsModal` for logging performance (duration, notes, rating, completion), with offline queuing. _(Fulfills implicit logging need)_.
-*   **Goal Engine:** UI in Settings and calculation functions (`calculateCalorieTarget`, `calculateProteinTarget`) implemented (Spec Feature 4.2).
+*   **Workout Logging:** Added `WorkoutDetailsModal`.
+*   **Goal Engine:** UI in Settings and calculation functions implemented (Spec Feature 4.2).
 *   **Knowledge Base (`/knowledge`):** Implemented (Spec Feature 4.7).
-*   **Settings (`/settings`):** Profile, Goals, Data Export sections implemented (Spec Feature 4.9). Integrations and Notifications UI exists.
+*   **Settings (`/settings`):** Profile, Goals, Data Export sections implemented. Integrations/Notifications UI exists.
 *   **Fitbit Integration (Partial):** _(Spec Feature 4.12, Section 8A)_
     *   OAuth UI flow initiated from Settings.
     *   Callback handler (`/api/fitbit/callback/route.ts`) exchanges code for tokens.
-    *   **Improved Security:** Refresh tokens stored in secure, HTTP-only cookies (Deviation from Spec 8A.3 suggesting DB storage). Access tokens/expiry managed client-side (Zustand).
-    *   Server Actions (`src/lib/fitbitActions.ts`) for refreshing tokens, fetching data (`fetchFitbitData`), **syncing daily summary (`syncFitbitDataForDate`)**, and revoking tokens. **All tests pass.**
-    *   **Deviation:** Server Actions use **placeholder `getCurrentUserId`**.
+    *   **Improved Security:** Refresh tokens stored in secure, HTTP-only cookies. Access tokens/expiry managed client-side (Zustand).
+    *   Server Actions (`src/lib/fitbitActions.ts`) for refresh, fetch, sync, revoke. **All tests pass.**
+    *   **Uses `getCurrentUserId`:** Now integrated with NextAuth session.
     *   **Missing:** Frontend logic to *trigger* `syncFitbitDataForDate` and *use* synced data.
 *   **Notifications (Partial):** _(Spec Feature 4.8, Section 11)_
     *   Frontend subscription UI/logic in Settings.
-    *   Backend API routes (`/api/notifications/subscribe`, `/unsubscribe`) exist.
-    *   **Deviation:** Uses **placeholder in-memory storage** (`notificationSubscriptionStorage.ts`).
-    *   **Deviation:** Server action (`notificationActions.ts`) uses **placeholder logic** and **does not send pushes**.
-    *   **Deviation:** Uses JavaScript service worker (`public/sw.js`) instead of Spec's proposed TypeScript (Section 6).
-*   **Testing:** Jest + RTL setup. Unit tests for core utils, stores, offline sync, and Fitbit actions implemented and passing. (See `tests.md`).
+    *   Backend API routes exist.
+    *   **Deviation:** Uses **placeholder storage/logic**.
+    *   **Deviation:** Uses JavaScript service worker (`public/sw.js`).
+*   **Testing:** Jest + RTL setup. Unit tests for core utils, stores, offline sync, Fitbit actions. (See `tests.md`).
 *   **Toast Notifications:** Implemented using `sonner`.
 *   **Data Export:** Implemented in Settings (Spec Feature 4.9).
 
 ### Current Issues / Known Limitations
 
-*   **Fitbit Integration:** Requires **real authentication** (replace `getCurrentUserId`). Frontend sync trigger and data usage logic are **missing**.
+*   **Authentication:**
+    *   **Credentials provider uses placeholder `authorize` logic.** Needs replacement with secure user lookup and password validation.
+    *   **UI integration is missing** (Sign-in/out buttons, session display).
+    *   **Page/route protection is not implemented.**
+    *   OAuth provider setup (callback URLs) must be completed in Google/GitHub developer consoles.
+*   **Fitbit Integration:** Frontend sync trigger and data usage logic are **missing**.
 *   **Notifications:** Backend needs **real storage and push implementation**. API route tests are **skipped**. Service worker functionality needs verification.
 *   **Offline Sync Manager:** Uses **simulated backend calls**. Lacks robust error handling/retries.
-*   **Planner:** Lacks **fully adaptive plan generation** based on progress/feedback.
-*   **Testing:** Component tests and E2E tests (Cypress) are **missing**. (See `tests.md`).
-*   **Layout (`layout.tsx`):** Potential lingering type issues with `BeforeInstallPromptEvent` (check if `@ts-ignore` is still present).
+*   **Planner:** Lacks **fully adaptive plan generation**.
+*   **Testing:** Component tests and E2E tests (Cypress) are **missing**. NextAuth API route tests are **missing**. (See `tests.md`).
+*   **Layout (`layout.tsx`):** Potential lingering type issues with `BeforeInstallPromptEvent`.
 
-### Missing Features / Next Steps (Prioritized from Spec)
+### Missing Features / Next Steps (Prioritized based on Spec & Current State)
 
-**High Priority:**
+**High Priority (Core Functionality & Spec v1.0/v1.1):**
 
-*   **Fitbit Integration (Complete):** Implement real authentication, frontend sync trigger, and data utilization (Spec 4.12, 8A, 17.v1.1).
-*   **Notifications (Complete):** Implement real backend storage, push logic, fix tests, verify SW (Spec 4.8, 11).
-*   **Planner Enhancements:** Implement fully adaptive plan generation (Spec 4.3, 8.4).
-*   **Offline Sync Manager:** Integrate with real backend, add error handling.
+1.  **Authentication (Complete Implementation):**
+    *   Implement **real `authorize` function** for Credentials provider (user lookup, password hashing/checking).
+    *   Integrate **Sign-in/Sign-out UI** (e.g., in Header/Settings).
+    *   Implement **page/route protection** using Middleware or `auth()` checks.
+    *   Set up **OAuth callback URLs** in Google/GitHub developer consoles.
+    *   Wrap app in `<SessionProvider>` if using `useSession` hook.
+    *   _Test Coverage:_ Need tests for NextAuth API route, `authorize` logic, and related UI components.
+2.  **Fitbit Integration (Complete - Spec 4.12, 8A, 17.v1.1):**
+    *   Implement **frontend logic** to trigger `syncFitbitDataForDate` (e.g., on app load/periodically).
+    *   Integrate fetched `FitbitDaily` data into relevant stores (`metricsStore`, `activityStore`) and use it to **auto-adjust calorie targets**.
+    *   _Test Coverage:_ Need tests for `userProfileStore` (token handling), `activityStore` (data consumption), Fitbit callback API route, and related components.
+3.  **Notifications (Implement Backend & Fixes - Spec 4.8, 11):**
+    *   Implement **real database storage** for push subscriptions.
+    *   Implement **actual backend push service** (`notificationActions.ts`).
+    *   Implement **real trigger logic** for reminders.
+    *   **Fix skipped tests** for API routes & add tests for `notificationActions.ts`.
+    *   Verify service worker.
+4.  **Planner Enhancements (Adaptive Logic - Spec 4.3, 8.4):**
+    *   Implement the core adaptive algorithm.
+    *   _Test Coverage:_ Need more comprehensive tests for `generatePlan`.
+5.  **Offline Sync Manager (Robustness):**
+    *   Replace **simulated backend calls**.
+    *   Implement **robust error handling**.
+    *   _Test Coverage:_ Need tests for retry/error handling.
 
-**Medium Priority:**
+**Medium Priority (Completing Spec Features):**
 
-*   **Wyze Scale Integration:** Health Connect/Kit bridge or CSV import (Spec 4.13, 8F).
-*   **NFC Triggers:** Implement Web NFC scanning, QR fallback, logging integration (Spec 4.14, 8B, 8E).
-*   **Media Library:** Implement Exercise Video/Meal Gallery components & integration (Spec 4.10, 4.11).
-*   **Testing:** Add Component tests (RTL) and E2E tests (Cypress) (Spec 13).
-*   **Guided Tutorials:** Implement NFC tutorial modal/flow (Spec 4.14, 8D).
+6.  **Wyze Scale Integration (Spec 4.13, 8F):** Implement Health Connect/Kit bridge or CSV import.
+7.  **NFC Triggers (Spec 4.14, 8B, 8E):** Implement Web NFC / QR fallback and connect to logging.
+8.  **Media Library Integration (Spec 4.10, 4.11):** Implement and integrate components.
+9.  **Guided Tutorials (Spec 4.14, 8D):** Implement modal and content.
+10. **Testing (Coverage - Spec 13):** Implement **Component Tests (RTL)** and **E2E Tests (Cypress)**.
 
-**Low Priority:**
+**Low Priority (Spec v2.0 / Polish):**
 
-*   Equipment Cues (Spec 4.4)
-*   AI Plan Regeneration (Spec 17.v2.0)
-*   Native Wrappers (Optional) (Spec 8E)
-*   CI/CD Finalization (Spec 14)
-*   Accessibility & UX Polish (Spec 12)
+11. **Equipment Cues (Spec 4.4):** Implement prompts/timers.
+12. **AI Plan Re-generation (Spec 17.v2.0):** Integrate with OpenAI API.
+13. **CI/CD Finalization (Spec 14):** Set up full GitHub Actions workflow.
+14. **Accessibility & UX Polish (Spec 12):** Conduct review.
+15. **Native Wrappers (Optional - Spec 8E):** Consider Capacitor/React Native.
 
 ## 4. Getting Started
 
@@ -115,22 +147,42 @@ This project aims to follow the specifications outlined in [`Technical-Specifica
     pnpm install
     ```
 3.  **Environment Variables:**
-    Create a `.env.local` file in the root directory for **client-side** variables:
-    ```
+    Manually create a `.env.local` file in the root directory. **Do not commit this file.** Populate it with your secrets:
+    ```dotenv
+    # Auth Core (Required)
+    # Generate with: openssl rand -base64 32
+    AUTH_SECRET="YOUR_AUTH_SECRET_HERE"
+    AUTH_TRUST_HOST="true" # Recommended for Vercel/proxy deployments
+    # AUTH_URL="http://localhost:3000" # Usually auto-detected, set if needed
+
+    # Vercel KV (Required for Auth Session Storage)
+    KV_URL="YOUR_KV_URL_HERE"
+    KV_REST_API_URL="YOUR_KV_REST_API_URL_HERE"
+    KV_REST_API_TOKEN="YOUR_KV_REST_API_TOKEN_HERE"
+    KV_REST_API_READ_ONLY_TOKEN="YOUR_KV_REST_API_READ_ONLY_TOKEN_HERE"
+
+    # Auth Providers (Add secrets for providers you enable)
+    AUTH_GOOGLE_ID="YOUR_GOOGLE_CLIENT_ID_HERE"
+    AUTH_GOOGLE_SECRET="YOUR_GOOGLE_CLIENT_SECRET_HERE"
+    AUTH_GITHUB_ID="YOUR_GITHUB_CLIENT_ID_HERE"
+    AUTH_GITHUB_SECRET="YOUR_GITHUB_CLIENT_SECRET_HERE"
+
+    # Client-side Variables (Can also be in .env.local)
     NEXT_PUBLIC_APP_NAME="Plank You Very Much"
-    NEXT_PUBLIC_FITBIT_CLIENT_ID="YOUR_FITBIT_CLIENT_ID"
+
+    # Fitbit Integration
+    NEXT_PUBLIC_FITBIT_CLIENT_ID="YOUR_FITBIT_CLIENT_ID_HERE"
+    FITBIT_CLIENT_SECRET="YOUR_FITBIT_CLIENT_SECRET_HERE"
     # Ensure this matches the registered callback URL in Fitbit Dev settings AND your callback API route
     NEXT_PUBLIC_FITBIT_REDIRECT_URI="http://localhost:3000/api/fitbit/callback"
-    NEXT_PUBLIC_VAPID_PUBLIC_KEY="YOUR_GENERATED_VAPID_PUBLIC_KEY"
-    ```
-    Create a `.env` file (or use environment variables in deployment) for **server-side** secrets:
-    ```
-    FITBIT_CLIENT_SECRET="YOUR_FITBIT_CLIENT_SECRET"
-    VAPID_PRIVATE_KEY="YOUR_GENERATED_VAPID_PRIVATE_KEY"
-    ```
-    **Note:** Ensure `NEXT_PUBLIC_FITBIT_REDIRECT_URI` points to your API callback route (`/api/fitbit/callback`), not the settings page directly, as the API route handles the code exchange. The settings page (`/settings`) will handle *displaying* connection status after the redirect from the API route.
 
-    **Never commit `.env`, `FITBIT_CLIENT_SECRET` or `VAPID_PRIVATE_KEY` to your repository.**
+    # VAPID keys for Push Notifications
+    # Generate with: npx web-push generate-vapid-keys
+    NEXT_PUBLIC_VAPID_PUBLIC_KEY="YOUR_VAPID_PUBLIC_KEY_HERE"
+    VAPID_PRIVATE_KEY="YOUR_VAPID_PRIVATE_KEY_HERE"
+    ```
+    **Important:** Configure callback/redirect URLs correctly in Google Cloud Console, GitHub Developer Settings, and Fitbit Developer Settings for your development (`localhost`) and production environments.
+
 4.  **Run the development server:**
     ```bash
     pnpm dev

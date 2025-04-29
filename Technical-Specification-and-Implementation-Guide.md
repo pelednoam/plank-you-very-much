@@ -32,7 +32,7 @@ Design a React (+ TypeScript) web app that acts as an AI‑assisted personal t
 9. **Data export** – CSV/JSON of logs for physician/coach.
 10. **Exercise Media Library** – embedded GIF/short‑video demos for every movement with voice‑over cues.
 11. **Meal Gallery** – swipeable images & quick‑prep video snippets showing lactose‑free meal options with macro overlay.
-12. **Wearable Sync (Fitbit)** – pulls daily steps, HR, sleep & calorie burn via Fitbit Web API to refine plan and progress.
+12. **Wearable Sync (Fitbit)** – pulls daily **sleep stages (light, deep, REM & wake)**, steps, active minutes, HR, distance, floors, calorie burn **plus granular activity sessions** (e.g., climbing, swimming, running) via Fitbit Web API and merges them into progression charts & workout auto‑completion.
 13. **Smart Scale Sync (Wyze)** – imports weight, body‑fat %, muscle mass via Google Health Connect (Android) or Apple HealthKit (iOS) and maps directly to BodyMetrics.
 14. **NFC Activity Triggers** – tap a phone on room‑specific stickers (pull‑up bar, plank zone…) to auto‑log the workout and open guidance screens.
 14. **Guided Tutorials** – interactive in‑app walkthroughs for required third‑party tools (e.g., NFC Tools) with screenshots & progress tracker.
@@ -121,11 +121,30 @@ export interface MediaAsset {
 }
 
 export interface FitbitDaily {
-  date: string; // yyyy‑MM‑dd
+  date: string;          // yyyy‑MM‑dd
   steps: number;
+  activeMinutes: number; // fairly + very active
+  distanceKm: number;
+  floors?: number;
   restingHeartRate?: number;
   caloriesOut: number;
-  sleepMinutes?: number;
+  // Sleep summary (min)
+  sleepMinutesTotal?: number;
+  sleepLight?: number;
+  sleepDeep?: number;
+  sleepREM?: number;
+  sleepAwake?: number;
+  // Activity breakdown
+  activities?: ActivitySession[];
+}
+
+export interface ActivitySession {
+  id: string; // Fitbit logId
+  startTime: string;
+  durationMin: number;
+  activityType: 'CLIMBING' | 'SWIMMING' | 'RUNNING' | 'CYCLING' | 'STRENGTH' | 'OTHER';
+  calories: number;
+  distanceKm?: number;
 }
 ```
 

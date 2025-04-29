@@ -15,14 +15,29 @@ This document tracks the status of automated tests in the Plank You Very Much pr
 
 These tests verify individual functions, components, or modules in isolation.
 
-### Core Utilities
+### Core Utilities (`src/lib`)
 
 *   **`src/lib/calculationUtils.test.ts`**
     *   **Status:** ✅ Passing
     *   **Description:** Tests the core calculation logic for BMR, TDEE, calorie targets, and protein targets based on user profile data.
+*   **`src/lib/offlineSyncManager.test.ts`**
+    *   **Status:** ✅ Passing
+    *   **Description:** Tests the offline sync manager's ability to process queued actions from `offlineQueueStore`, handle simulated success/failure responses, and interact correctly with the store.
+*   **`src/lib/fitbitActions.test.ts`**
+    *   **Status:** ✅ Passing
+    *   **Description:** Tests the server actions for Fitbit integration (refresh token, fetch data, sync daily data, revoke token) using mocks for cookies and API calls.
+*   **`src/lib/notificationActions.test.ts`**
+    *   **Status:** ✅ Passing
+    *   **Description:** Tests the server action responsible for managing push notification subscriptions (add, remove, get) using mocked storage.
+*   **`src/lib/auth.ts`**
+    *   **Status:** ➖ Missing
+    *   **Description:** Tests for `getCurrentUserId` function (requires mocking NextAuth `auth()` call).
 
-### Zustand Stores
+### Zustand Stores (`src/store`)
 
+*   **`src/store/activityStore.test.ts`**
+    *   **Status:** ✅ Passing
+    *   **Description:** Tests adding, updating, and retrieving daily activity data (like Fitbit data), ensuring correct date handling and persistence (mocked IDB).
 *   **`src/store/metricsStore.test.ts`**
     *   **Status:** ✅ Passing
     *   **Description:** Tests adding, updating, and retrieving body metrics, ensuring correct data handling and persistence logic (mocked IDB).
@@ -33,69 +48,50 @@ These tests verify individual functions, components, or modules in isolation.
     *   **Status:** ✅ Passing
     *   **Description:** Tests plan generation, marking workouts complete (including optimistic UI updates), handling offline scenarios (queuing actions via `offlineQueueStore`), and persistence (mocked IDB).
 *   **`src/store/userProfileStore.test.ts`**
-    *   **Status:** ➖ Missing
-    *   **Description:** Tests for setting/updating user profile info, goals, and Fitbit connection status.
-*   **`src/store/activityStore.test.ts`**
-    *   **Status:** ➖ Missing
-    *   **Description:** Tests for adding/updating activity data (e.g., synced Fitbit data).
+    *   **Status:** ✅ Passing
+    *   **Description:** Tests setting/updating user profile info, goals, Fitbit connection status, and tutorial completion markers. Checks persistence (mocked IDB).
 
-### Features
+### Features (`src/features`)
 
 *   **`src/features/planner/utils/generatePlan.test.ts`**
     *   **Status:** ✅ Passing
     *   **Description:** Tests the basic plan generation logic to ensure it creates a weekly schedule with the correct number and types of workouts.
 
-### Library Integrations / Server Actions
+### API Routes (`src/app/api`)
 
-*   **`src/lib/offlineSyncManager.test.ts`**
-    *   **Status:** ✅ Passing
-    *   **Description:** Tests the offline sync manager's ability to process queued actions from `offlineQueueStore`, handle simulated success/failure responses, and interact correctly with the store.
-*   **`src/lib/fitbitActions.test.ts`**
-    *   **Status:** ✅ Passing
-    *   **Description:** Tests the server actions for Fitbit integration:
-        *   `refreshFitbitToken`: Mocking cookie retrieval and API calls for success/failure scenarios.
-        *   `fetchFitbitData`: Mocking token validation, refresh logic, and API calls.
-        *   `syncFitbitDataForDate`: Mocking underlying `fetchFitbitData` calls for various data points and handling success/partial/failure scenarios.
-        *   `revokeFitbitToken`: Mocking cookie retrieval, API calls, and cookie deletion.
-*   **`src/lib/notificationActions.test.ts`**
-    *   **Status:** ➖ Missing
-    *   **Description:** Tests for the server action responsible for triggering push notifications.
-
-### API Routes (Next.js Route Handlers)
-
-*   **`src/app/api/notifications/subscribe/route.test.ts`**
-    *   **Status:** ⚠️ Skipped
-    *   **Reason:** Previously reported issues mocking `NextResponse.json()` within the Jest environment.
-    *   **Description:** (Intended) Tests the API endpoint for subscribing a user to push notifications, verifying request handling and interaction with storage (currently placeholder).
-*   **`src/app/api/notifications/unsubscribe/route.test.ts`**
-    *   **Status:** ⚠️ Skipped
-    *   **Reason:** Previously reported issues mocking `NextResponse.json()` within the Jest environment.
-    *   **Description:** (Intended) Tests the API endpoint for unsubscribing a user, verifying request handling and interaction with storage.
 *   **`src/app/api/fitbit/callback/route.test.ts`**
+    *   **Status:** ✅ Passing
+    *   **Description:** Tests the Fitbit OAuth callback handler for exchanging the authorization code, handling success/error states, and setting cookies (using mocks).
+*   **`src/app/api/notifications/subscribe/route.test.ts`**
+    *   **Status:** ✅ Passing
+    *   **Description:** Tests the API endpoint for subscribing a user to push notifications, verifying request handling, validation, and interaction with mocked KV storage.
+*   **`src/app/api/notifications/unsubscribe/route.test.ts`**
+    *   **Status:** ✅ Passing
+    *   **Description:** Tests the API endpoint for unsubscribing a user, verifying request handling and interaction with mocked KV storage.
+*   **`src/app/api/auth/[...nextauth]/route.ts`**
     *   **Status:** ➖ Missing
-    *   **Description:** Tests the Fitbit OAuth callback handler for exchanging the authorization code, handling success/error states, and setting cookies.
+    *   **Description:** Tests for the NextAuth.js catch-all route handler (e.g., simulating sign-in attempts, callback handling for providers).
 
-### Components (React Testing Library)
+### Components (`src/components`, `src/features/*/components`)
 
 *   **Status:** ➖ Missing
-*   **Description:** No component-level tests have been implemented yet. These would typically involve rendering components and asserting their output or behavior based on props and user interactions.
-    *   Examples: `<UserProfileForm />`, `<WorkoutDetailsModal />`, `<Dashboard />`, `<Planner />` components.
+*   **Description:** No component-level tests have been implemented yet. These would typically involve rendering components using React Testing Library and asserting their output or behavior based on props and user interactions.
+    *   Examples: `<UserProfileForm />`, `<WorkoutDetailsModal />`, `<Dashboard />`, `<Planner />` components, Auth-related UI components (Login forms/buttons).
 
 ---
 
 ## End-to-End Tests (Cypress)
 
 *   **Status:** ➖ Missing
-*   **Description:** No E2E tests are currently implemented. These tests would simulate user flows through the entire application in a browser environment.
-    *   Examples: Onboarding flow, logging a workout, connecting Fitbit, syncing data.
+*   **Description:** No E2E tests are currently implemented. These tests would simulate user flows through the entire application in a browser environment using Cypress.
+    *   Examples: Onboarding flow, Logging in via different providers, Logging a workout, Connecting Fitbit, Syncing data.
 
 ---
 
 **Summary:**
 
-*   Core utility functions, Zustand stores (metrics, offline queue, planner), offline sync manager, and Fitbit server actions have passing unit tests.
-*   Tests for Notification API routes are currently skipped.
-*   Tests for some stores (`userProfileStore`, `activityStore`), Notification Actions, Fitbit Callback API, and all Components/E2E flows are missing.
+*   Core utility functions, Zustand stores, offline sync manager, Fitbit server actions, and Notification/Fitbit API routes have passing unit tests.
+*   Tests for `src/lib/auth.ts`, the NextAuth API route, and all Components/E2E flows are missing.
 
 ## Running Tests
 

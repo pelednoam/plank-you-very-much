@@ -16,7 +16,7 @@ interface PersistedUserProfileState {
 }
 
 // Define the full state including actions
-interface UserProfileState {
+export interface UserProfileState {
   profile: UserProfile | null; // Only profile needs to be top-level state
   setProfile: (profileData: UserProfile) => void;
   completeOnboarding: (profileData: Omit<UserProfile, 'completedOnboarding' | 'id' | 'completedTutorials' | 'notificationPrefs' | 'fitbitUserId' | 'fitbitAccessToken' | 'fitbitExpiresAt'>) => void;
@@ -83,18 +83,38 @@ export const useUserProfileStore = create<UserProfileState>()(
         }
       })),
 
-      // Update general settings, excluding managed fields
+      // Update general settings, excluding managed/internal fields
       updateSettings: (settingsData) => set((state) => {
         if (!state.profile) return {}; 
+
+        // Define fields allowed to be updated by this action
+        // (Should match the fields included in UserProfileForm)
+        const allowedUpdates: Partial<UserProfile> = {};
+        const updatableKeys: Array<keyof typeof settingsData> = [
+            'name', 
+            'lactoseSensitive',
+            'dob',
+            'sex',
+            'heightCm',
+            'activityLevel',
+            'targetBodyFatPct',
+            'targetDate',
+            'backIssues',
+            'equipment',
+             // Add any other fields managed by UserProfileForm here
+        ];
+
+        // Copy only allowed fields from settingsData
+        for (const key of updatableKeys) {
+             if (key in settingsData && settingsData[key] !== undefined) {
+                 (allowedUpdates as any)[key] = settingsData[key];
+             }
+        }
+
         return {
           profile: { 
-              ...state.profile, 
-              ...settingsData, 
-              // Ensure managed fields aren't overwritten if passed accidentally
-              notificationPrefs: state.profile.notificationPrefs, 
-              completedTutorials: state.profile.completedTutorials,
-              fitbitAccessToken: state.profile.fitbitAccessToken,
-              fitbitExpiresAt: state.profile.fitbitExpiresAt,
+              ...state.profile, // Keep existing state (includes managed fields)
+              ...allowedUpdates, // Overwrite only the allowed fields
           }
         };
       }),
