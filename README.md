@@ -10,128 +10,98 @@ _AI-Assisted Personal Trainer – "Climb higher, dive stronger, live leaner."_
 
 This project implements the **Plank You Very Much** web application, an AI-assisted personal trainer designed to help users (initially Shay, 45 yo) lower body fat while preserving back health and supporting activities like climbing and swimming. The goal is to provide adaptive weekly plans, habit nudges, progress dashboards, and seamless integration with daily routines and equipment.
 
-This project follows the specifications outlined in [`Technical-Specification-and-Implementation-Guide.md`](./Technical-Specification-and-Implementation-Guide.md).
+This project aims to follow the specifications outlined in [`Technical-Specification-and-Implementation-Guide.md`](./Technical-Specification-and-Implementation-Guide.md).
 
-## 2. Tech Stack
+## 2. Tech Stack (Current)
 
-*   **Framework:** Next.js 14 (React 18) + TypeScript _(As specified)_.
-*   **Styling:** Tailwind CSS + **shadcn/ui** _(Spec mentioned Tailwind; `shadcn/ui` was added for component library)_. 
-*   **State Management:** Zustand (with IndexedDB persistence via `idb`) _(As specified)_.
-*   **Forms:** React Hook Form + **Zod** _(Spec mentioned RHF; `Zod` was added for schema validation)_. 
-*   **Charts:** Recharts _(As specified)_.
-*   **Date Handling:** Day.js _(As specified)_.
-*   **Data Persistence:** IndexedDB via `idb` library _(As specified)_.
-*   **Markdown:** `gray-matter` (frontmatter), `react-markdown` + `remark-gfm` (rendering) _(Specific libraries chosen during implementation)_. 
-*   **Integrations:** Fitbit Web API (OAuth 2.0 - partial), Google Health Connect / Apple HealthKit (pending), Web NFC API (pending) _(As specified)_. 
-*   **Testing:** Jest + React Testing Library (Setup complete, core store tests implemented) _(Spec also mentioned Cypress E2E - not yet implemented)_. 
-*   **PWA:** **`@serwist/next`** (using standard `sw.js`, requires verification) _(Spec mentioned older `@ducanh2912/next-pwa`; `@serwist/next` is now installed, likely replacing it)_. 
-*   **Other Libraries:** `uuid`, `lucide-react` (icons), `sonner` (toasts), `core-js` (polyfills) _(Chosen during implementation)_. 
+*   **Framework:** Next.js 14 (React 18) + TypeScript _(As specified, using **App Router**)_
+*   **Styling:** Tailwind CSS + **shadcn/ui** _(Spec mentioned Tailwind; `shadcn/ui` added)_
+*   **State Management:** Zustand (with IndexedDB persistence via `idb-keyval`) _(As specified)_
+*   **Forms:** React Hook Form + **Zod** _(Spec mentioned RHF; `Zod` added)_
+*   **Charts:** Recharts _(As specified)_
+*   **Date Handling:** Day.js _(As specified)_
+*   **Data Persistence:** IndexedDB via `idb-keyval` library _(As specified, library differs slightly)_
+*   **Markdown:** `gray-matter`, `react-markdown` + `remark-gfm` _(Implementation choices)_
+*   **Integrations:** Fitbit Web API (OAuth 2.0), Google Health Connect / Apple HealthKit (Pending), Web NFC API (Pending) _(As specified)_
+*   **Testing:** Jest + React Testing Library _(As specified; **Cypress E2E pending**)_
+*   **PWA:** `@serwist/next` _(Implementation choice)_
+*   **Other Libraries:** `uuid`, `lucide-react` (icons), `sonner` (toasts), `core-js` (polyfills) _(Implementation choices)_
 
-## 3. Current Status (as of 2025-04-29 - Includes Offline Sync)
+## 3. Current Status (as of YYYY-MM-DD - Update Date)
 
 ### Implemented Features (Highlights & Deviations from Spec)
 
-*   **Project Setup:** Next.js **App Router** structure, TypeScript, Tailwind, ESLint. _(Deviation: Spec proposed Pages Router structure)_.
-*   **Directory Structure:** Aligned with App Router conventions.
+*   **Project Setup:** Next.js **App Router** structure, TypeScript, Tailwind, ESLint.
+    *   **Deviation:** Spec proposed Pages Router structure (Section 6).
 *   **Data Types:** Core interfaces defined (`src/types/index.ts`).
-    *   **Deviation:** `Workout` uses `completedAt?: string` and `performanceRating` (renamed from `rating`).
-    *   **Deviation:** `UserProfile` includes additional fields and uses App Router specific enums/types.
-    *   **Deviation:** Added `Planner` types, `FitbitTokenData`, etc.
-*   **State Management (Zustand + IndexedDB):** Core stores (`userProfileStore`, `metricsStore`, `activityStore`, `offlineQueueStore`, `plannerStore`) created using `idbStorage` for persistence.
-    *   **Offline Queue Store (`offlineQueueStore`)**: Implemented to queue actions (e.g., workout completion) when offline. Persists only `pendingActions` to IDB.
-    *   **Planner Store (`plannerStore`)**: Handles plan generation and workout updates. Includes optimistic UI for `markWorkoutComplete` and queues action via `offlineQueueStore` if offline or simulated sync fails. Persists only `currentPlan` to IDB.
-    *   **Deviation:** Required `partialize` option in `persist` middleware for stores using IDB to avoid `DataCloneError` with non-serializable functions.
-*   **Offline Sync Manager:**
-    *   Implemented in `src/lib/offlineSyncManager.ts`.
-    *   Initialized on app load via `src/app/layout.tsx`.
-    *   Processes actions from `offlineQueueStore` when online (simulated backend call).
-    *   Handles basic success/failure (leaves failed actions in queue).
-*   **Routing & Layout:** Basic App Router layout (`src/app/layout.tsx`) and core pages implemented.
+    *   **Deviation:** Some specific fields differ from Spec Section 7 (e.g., `Workout` has `completedAt`, `performanceRating`). `UserProfile` and other store-specific types added.
+*   **State Management (Zustand + IndexedDB):** Core stores (`userProfileStore`, `metricsStore`, `activityStore`, `offlineQueueStore`, `plannerStore`) created using `idbStorage` from `zustand/middleware`.
+    *   **Offline Queue Store (`offlineQueueStore`):** Implemented for offline action queuing.
+    *   **Planner Store (`plannerStore`):** Handles plan generation and workout updates with optimistic UI and offline queuing.
+    *   **Deviation:** Uses `idb-keyval` via Zustand middleware, not raw `idb` (Spec Section 5). Requires `partialize` for non-serializable data.
+*   **Offline Sync Manager:** Basic manager (`src/lib/offlineSyncManager.ts`) processes `offlineQueueStore` when online (simulated backend).
+*   **Routing & Layout:** Basic App Router layout (`src/app/layout.tsx`) and core pages implemented (matching Spec Section 9).
 *   **UI Components (shadcn/ui):** Core components added.
-*   **Onboarding Flow (`/onboard`):** Fully implemented as per Spec 4.1.
-*   **Dashboard (`/`):** Implemented as per Spec 4.6, including charts and today's workouts. **Added:** Workout items link to details modal.
-*   **Nutrition (`/nutrition`):** Meal logging and macro progress implemented (Spec 4.5). Targets now use goal parameters (Spec 4.2 partially addressed).
-*   **Planner (`/planner`):**
-    *   Monthly calendar view implemented.
-    *   Basic weekly plan generation (`generateWeeklyPlan`) exists.
-    *   **Added:** Dynamic workout **duration adjustment** based on user fat loss goals (partially addresses Spec 4.3).
-    *   **Deviation:** Full dynamic/adaptive generation (Spec 4.3, 8.4) based on feedback/progress is **missing**.
-    *   **Added:** Workout items link to details modal.
-*   **Workout Logging:** **Added `WorkoutDetailsModal`** component for logging performance (duration, notes, rating, completion), integrated into Dashboard and Planner. Supports offline queuing via `plannerStore`. _(Fulfills implicit logging need)_.
-*   **Goal Engine:** Fully implemented UI (Settings) and integration with calculation functions (`calculateCalorieTarget`, `calculateProteinTarget`).
-*   **Knowledge Base (`/knowledge`):** Implemented as per Spec 4.7.
-*   **Settings (`/settings`):** Core sections implemented (Profile, Goals, Data Export). Integrations and Notifications UI exists.
-*   **Fitbit Integration (Partial):**
+*   **Onboarding Flow (`/onboard`):** Implemented (Spec Feature 4.1).
+*   **Dashboard (`/`):** Implemented with charts and today's workouts (Spec Feature 4.6). Workout items link to details modal.
+*   **Nutrition (`/nutrition`):** Meal logging and macro progress implemented (Spec Feature 4.5). Targets use goal parameters (Spec Feature 4.2 partially addressed).
+*   **Planner (`/planner`):** Monthly calendar view, basic weekly plan generation (`generateWeeklyPlan`). Workout items link to details modal.
+    *   **Added:** Workout duration adjustment based on goals (partially addresses Spec Feature 4.3).
+    *   **Deviation:** Full dynamic/adaptive plan generation is **missing** (Spec Feature 4.3, Algorithm 8.4).
+*   **Workout Logging:** Added `WorkoutDetailsModal` for logging performance (duration, notes, rating, completion), with offline queuing. _(Fulfills implicit logging need)_.
+*   **Goal Engine:** UI in Settings and calculation functions (`calculateCalorieTarget`, `calculateProteinTarget`) implemented (Spec Feature 4.2).
+*   **Knowledge Base (`/knowledge`):** Implemented (Spec Feature 4.7).
+*   **Settings (`/settings`):** Profile, Goals, Data Export sections implemented (Spec Feature 4.9). Integrations and Notifications UI exists.
+*   **Fitbit Integration (Partial):** _(Spec Feature 4.12, Section 8A)_
     *   OAuth UI flow initiated from Settings.
-    *   Callback handler (`/api/fitbit/callback/route.ts`) implemented to exchange code for tokens.
-    *   **Improved Security:** Refresh tokens are stored in **secure, HTTP-only cookies**. Access tokens/expiry managed in client-side Zustand store (`userProfileStore`).
-    *   Server Actions (`src/lib/fitbitActions.ts`) implemented for refreshing tokens (using cookie), fetching arbitrary data (`fetchFitbitData`), **syncing daily summary data (`syncFitbitDataForDate`)**, and revoking tokens. **All related tests are passing.**
-    *   **Deviation:** Server Actions still use **placeholder `getCurrentUserId`** for app-level authentication.
-    *   **Deviation:** Actual frontend integration to *trigger* `syncFitbitDataForDate` and *use* the resulting `FitbitDaily` data is **not implemented**.
-    *   **Issue:** Linter errors previously noted in `fitbitActions.ts` related to `cookies()` have been resolved or were related to test setup.
-*   **Notifications (Partial):**
-    *   Frontend subscription UI/logic in Settings implemented (`NotificationSettings` component).
-    *   Backend API routes for `/api/notifications/subscribe` and `/api/notifications/unsubscribe` exist.
-    *   **Deviation:** Uses **placeholder in-memory storage** (`notificationSubscriptionStorage.ts`) instead of a real database.
-    *   **Deviation:** Server action for triggering reminders (`notificationActions.ts`) exists but uses **placeholder logic** and **does not actually send pushes** (`web-push` not fully integrated).
-    *   **Deviation:** Uses JavaScript service worker (`public/sw.js`) instead of Spec's proposed TypeScript. Requires verification with PWA build.
-    *   **Issue:** API route tests (`subscribe/route.test.ts`, `unsubscribe/route.test.ts`) are **skipped** due to issues mocking `NextResponse.json()` in Jest.
-*   **Testing:**
-    *   Jest + RTL setup complete (`jest.config.ts`, `jest.setup.js` includes mocks for `crypto.randomUUID`, `navigator.onLine`, `fetch`, IDB).
-    *   Unit tests implemented and **passing** for:
-        *   `src/lib/calculationUtils.test.ts`
-        *   `src/store/metricsStore.test.ts`
-        *   `src/features/planner/utils/generatePlan.test.ts`
-        *   `src/store/offlineQueueStore.test.ts`
-        *   `src/store/plannerStore.test.ts` (covers optimistic updates, offline/failure queuing)
-        *   `src/lib/offlineSyncManager.test.ts`
-        *   **`src/lib/fitbitActions.test.ts` (covers `refreshFitbitToken`, `fetchFitbitData`, `syncFitbitDataForDate`, `revokeFitbitToken`)**
-    *   **Skipped Tests:** `api/notifications/subscribe/route.test.ts`, `api/notifications/unsubscribe/route.test.ts`.
-    *   **Missing:** Component tests, E2E tests (Cypress).
-    *   **Added:** A new `tests.md` file tracks test status in more detail.
+    *   Callback handler (`/api/fitbit/callback/route.ts`) exchanges code for tokens.
+    *   **Improved Security:** Refresh tokens stored in secure, HTTP-only cookies (Deviation from Spec 8A.3 suggesting DB storage). Access tokens/expiry managed client-side (Zustand).
+    *   Server Actions (`src/lib/fitbitActions.ts`) for refreshing tokens, fetching data (`fetchFitbitData`), **syncing daily summary (`syncFitbitDataForDate`)**, and revoking tokens. **All tests pass.**
+    *   **Deviation:** Server Actions use **placeholder `getCurrentUserId`**.
+    *   **Missing:** Frontend logic to *trigger* `syncFitbitDataForDate` and *use* synced data.
+*   **Notifications (Partial):** _(Spec Feature 4.8, Section 11)_
+    *   Frontend subscription UI/logic in Settings.
+    *   Backend API routes (`/api/notifications/subscribe`, `/unsubscribe`) exist.
+    *   **Deviation:** Uses **placeholder in-memory storage** (`notificationSubscriptionStorage.ts`).
+    *   **Deviation:** Server action (`notificationActions.ts`) uses **placeholder logic** and **does not send pushes**.
+    *   **Deviation:** Uses JavaScript service worker (`public/sw.js`) instead of Spec's proposed TypeScript (Section 6).
+*   **Testing:** Jest + RTL setup. Unit tests for core utils, stores, offline sync, and Fitbit actions implemented and passing. (See `tests.md`).
 *   **Toast Notifications:** Implemented using `sonner`.
-*   **Data Export:** Implemented in Settings using `exportUtils.ts`.
+*   **Data Export:** Implemented in Settings (Spec Feature 4.9).
 
 ### Current Issues / Known Limitations
 
-*   **Fitbit Integration:** Server Actions use a **placeholder `getCurrentUserId`**. Frontend logic to *trigger sync* and *utilize synced data* is missing.
-*   **Notifications:** API route tests (`subscribe/route.test.ts`, `unsubscribe/route.test.ts`) are **skipped**. Service worker functionality needs PWA build verification. Backend uses placeholder storage and does not send pushes.
-*   **Offline Sync Manager:** Uses simulated backend calls; requires real API integration. Lacks sophisticated error handling (e.g., retries, user feedback on permanent failure).
-*   **Testing:** Component tests and E2E tests (Cypress) are **missing**. (See `tests.md` for details).
-*   **Layout (`layout.tsx`):** Persistent linter errors regarding `BeforeInstallPromptEvent` type, despite global type definition in `src/types/global.d.ts`. The `@ts-ignore` directives are currently suppressing these.
+*   **Fitbit Integration:** Requires **real authentication** (replace `getCurrentUserId`). Frontend sync trigger and data usage logic are **missing**.
+*   **Notifications:** Backend needs **real storage and push implementation**. API route tests are **skipped**. Service worker functionality needs verification.
+*   **Offline Sync Manager:** Uses **simulated backend calls**. Lacks robust error handling/retries.
+*   **Planner:** Lacks **fully adaptive plan generation** based on progress/feedback.
+*   **Testing:** Component tests and E2E tests (Cypress) are **missing**. (See `tests.md`).
+*   **Layout (`layout.tsx`):** Potential lingering type issues with `BeforeInstallPromptEvent` (check if `@ts-ignore` is still present).
 
-### Missing Features / Next Steps (Prioritized)
+### Missing Features / Next Steps (Prioritized from Spec)
 
-**High Priority (Core Functionality & Spec Alignment):**
+**High Priority:**
 
-*   **Notifications (Implement Backend & Fixes):** _(Address deviations from Spec 11 & 16)_.
-    *   Implement **real database storage** for subscriptions.
-    *   Implement **actual backend push service** using `web-push`.
-    *   Implement real notification triggers.
-    *   **Fix skipped tests** for API routes & verify `sw.js`.
-*   **Fitbit Integration (Frontend & Auth):** _(Address deviations from Spec 8A)_.
-    *   Implement **frontend logic** to trigger `syncFitbitDataForDate` (e.g., on app load, periodically).
-    *   Integrate the fetched `FitbitDaily` data into relevant stores/UI (e.g., update metrics, adjust calorie targets - Spec 17 v1.1).
-    *   Replace placeholder `getCurrentUserId` with **actual authentication** mechanism.
-*   **Offline Sync Manager (Real Backend & Error Handling):** Replace placeholder sync logic with actual API calls. Implement retry logic / user feedback for failures.
-*   **Planner Enhancements (Full Adaptive Generation):** Implement adaptive logic based on user progress/feedback (Spec 4.3 & 8.4).
+*   **Fitbit Integration (Complete):** Implement real authentication, frontend sync trigger, and data utilization (Spec 4.12, 8A, 17.v1.1).
+*   **Notifications (Complete):** Implement real backend storage, push logic, fix tests, verify SW (Spec 4.8, 11).
+*   **Planner Enhancements:** Implement fully adaptive plan generation (Spec 4.3, 8.4).
+*   **Offline Sync Manager:** Integrate with real backend, add error handling.
 
-**Medium Priority (Completing Features & Polish):**
+**Medium Priority:**
 
-*   **Wyze Scale Integration:** Implement Health Connect/Kit bridge or CSV import (Spec 8F).
-*   **NFC Triggers:** Implement Web NFC scanning, connect to workout logging, implement QR fallback (Spec 8B, 8E).
-*   **Media Library Integration:** Implement Meal Gallery & Exercise Video components (Spec 4.10, 4.11).
-*   **Settings (Full):** Implement backend sync for notification preferences, refine data export.
+*   **Wyze Scale Integration:** Health Connect/Kit bridge or CSV import (Spec 4.13, 8F).
+*   **NFC Triggers:** Implement Web NFC scanning, QR fallback, logging integration (Spec 4.14, 8B, 8E).
+*   **Media Library:** Implement Exercise Video/Meal Gallery components & integration (Spec 4.10, 4.11).
 *   **Testing:** Add Component tests (RTL) and E2E tests (Cypress) (Spec 13).
-*   **Styling & UX:** General polish, accessibility review (Spec 12).
-*   **CI/CD:** Finalize workflow (Spec 14).
+*   **Guided Tutorials:** Implement NFC tutorial modal/flow (Spec 4.14, 8D).
 
-**Low Priority (v2.0 / Future):**
+**Low Priority:**
 
-*   AI Plan Regeneration (Spec 17)
-*   Native Wrappers (Optional) (Spec 8E)
 *   Equipment Cues (Spec 4.4)
-*   Social Features / Other Integrations (Spec 17)
+*   AI Plan Regeneration (Spec 17.v2.0)
+*   Native Wrappers (Optional) (Spec 8E)
+*   CI/CD Finalization (Spec 14)
+*   Accessibility & UX Polish (Spec 12)
 
 ## 4. Getting Started
 
@@ -144,16 +114,21 @@ This project follows the specifications outlined in [`Technical-Specification-an
     ```bash
     pnpm install
     ```
-3.  **Environment Variables:** _(Values below align with Spec 16 where applicable)_.
-    Create a `.env.local` file in the root directory. Add:
-    *   `NEXT_PUBLIC_APP_NAME="Plank You Very Much"`
-    *   `NEXT_PUBLIC_FITBIT_CLIENT_ID="YOUR_FITBIT_CLIENT_ID"`
-    *   `NEXT_PUBLIC_FITBIT_REDIRECT_URI="http://localhost:3000/settings"` (Update for deployment)
-    *   `NEXT_PUBLIC_VAPID_PUBLIC_KEY="YOUR_GENERATED_VAPID_PUBLIC_KEY"`
-
-    Create a `.env` file (or use environment variables in deployment) for **server-side** secrets. Add:
-    *   `FITBIT_CLIENT_SECRET="YOUR_FITBIT_CLIENT_SECRET"`
-    *   `VAPID_PRIVATE_KEY="YOUR_GENERATED_VAPID_PRIVATE_KEY"`
+3.  **Environment Variables:**
+    Create a `.env.local` file in the root directory for **client-side** variables:
+    ```
+    NEXT_PUBLIC_APP_NAME="Plank You Very Much"
+    NEXT_PUBLIC_FITBIT_CLIENT_ID="YOUR_FITBIT_CLIENT_ID"
+    # Ensure this matches the registered callback URL in Fitbit Dev settings AND your callback API route
+    NEXT_PUBLIC_FITBIT_REDIRECT_URI="http://localhost:3000/api/fitbit/callback"
+    NEXT_PUBLIC_VAPID_PUBLIC_KEY="YOUR_GENERATED_VAPID_PUBLIC_KEY"
+    ```
+    Create a `.env` file (or use environment variables in deployment) for **server-side** secrets:
+    ```
+    FITBIT_CLIENT_SECRET="YOUR_FITBIT_CLIENT_SECRET"
+    VAPID_PRIVATE_KEY="YOUR_GENERATED_VAPID_PRIVATE_KEY"
+    ```
+    **Note:** Ensure `NEXT_PUBLIC_FITBIT_REDIRECT_URI` points to your API callback route (`/api/fitbit/callback`), not the settings page directly, as the API route handles the code exchange. The settings page (`/settings`) will handle *displaying* connection status after the redirect from the API route.
 
     **Never commit `.env`, `FITBIT_CLIENT_SECRET` or `VAPID_PRIVATE_KEY` to your repository.**
 4.  **Run the development server:**
@@ -162,7 +137,7 @@ This project follows the specifications outlined in [`Technical-Specification-an
     ```
     The application should be available at `http://localhost:3000`.
 
-5.  **Run Tests:**
+5.  **Run Tests:** (See `tests.md` for details)
     ```bash
     # Run all tests
     pnpm test

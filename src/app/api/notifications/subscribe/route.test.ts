@@ -9,28 +9,28 @@ jest.mock('@/lib/notificationSubscriptionStorage', () => ({
     dbSaveSubscription: jest.fn(),
 }));
 
-// Mock NextResponse
-jest.mock('next/server', () => {
-    // Keep original exports except for NextResponse
-    const originalModule = jest.requireActual('next/server'); 
-    return {
-        ...originalModule,
-        NextResponse: {
-            // Mock the static json method
-            json: jest.fn((body, init) => {
-                // Return an object that mimics the Response structure needed by the tests
-                return {
-                    status: init?.status || 200,
-                    headers: new Headers(init?.headers),
-                    json: async () => Promise.resolve(body), // Method to get the body
-                    text: async () => Promise.resolve(JSON.stringify(body)),
-                    ok: (init?.status || 200) >= 200 && (init?.status || 200) < 300,
-                    // Add other Response properties/methods if needed by tests
-                };
-            }),
-        },
-    };
-});
+// Simplify NextResponse mock to return a basic object structure
+jest.mock('next/server', () => ({
+    // We only need to mock the parts used by the route: NextResponse.json
+    NextResponse: {
+        json: jest.fn((body, init) => {
+            const status = init?.status ?? 200;
+            return {
+                status: status,
+                // Use standard Headers constructor
+                headers: new Headers(init?.headers),
+                // Provide the async json() method the tests expect
+                json: async () => Promise.resolve(body),
+                // Provide text() just in case
+                text: async () => Promise.resolve(JSON.stringify(body)),
+                // Provide ok status derived from status code
+                ok: status >= 200 && status < 300,
+            };
+        }),
+    },
+    // Include other exports from next/server if they were needed (currently none seem required)
+    // e.g., NextRequest: jest.requireActual('next/server').NextRequest 
+}));
 
 // Mock console
 const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});

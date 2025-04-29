@@ -1,207 +1,216 @@
 import { triggerWorkoutReminders } from './notificationActions';
-import * as notificationStorage from './notificationSubscriptionStorage';
+import * as storage from './notificationSubscriptionStorage';
 import webpush from 'web-push';
 import type { PushSubscription } from 'web-push';
 
-// Mock storage functions
-jest.mock('./notificationSubscriptionStorage', () => ({
-    dbGetAllSubscriptions: jest.fn(),
-    dbDeleteSubscription: jest.fn(),
-}));
+// Mock storage module
+jest.mock('./notificationSubscriptionStorage');
 
-// Mock web-push
+// Refined Mock web-push
 jest.mock('web-push', () => ({
-    setVapidDetails: jest.fn(),
-    sendNotification: jest.fn(),
+  __esModule: true, // Handle ES module interop
+  // Mock methods directly on the module export
+  setVapidDetails: jest.fn(),
+  sendNotification: jest.fn(),
+  // Mock default export if needed, pointing to the same mocks
+  default: {
+     setVapidDetails: jest.fn(),
+     sendNotification: jest.fn(),
+  }
 }));
 
-// Mock the internal helper function getWorkoutsNeedingReminders
-// Keep triggerWorkoutReminders as the actual implementation
-jest.mock('./notificationActions', () => {
-    const original = jest.requireActual<typeof import('./notificationActions')>('./notificationActions');
-    return {
-        ...original, // Keep triggerWorkoutReminders etc.
-        // We need a way to access the actual triggerWorkoutReminders despite the mock
-        __esModule: true, // Indicate it's an ES module
-        default: { // Assuming triggerWorkoutReminders might be default export - adjust if named
-           triggerWorkoutReminders: original.triggerWorkoutReminders 
-        },
-        triggerWorkoutReminders: original.triggerWorkoutReminders, // Export directly too if named
-        // Provide a mock implementation for the helper
-        getWorkoutsNeedingReminders: jest.fn(), 
-    };
-});
-
-// Type cast mocks
-const mockedGetAllSubs = notificationStorage.dbGetAllSubscriptions as jest.Mock;
-const mockedDeleteSub = notificationStorage.dbDeleteSubscription as jest.Mock;
-const mockedSendNotification = webpush.sendNotification as jest.Mock;
-// Type cast the mocked helper function
-const mockedGetWorkouts = jest.requireMock('./notificationActions').getWorkoutsNeedingReminders as jest.Mock;
-// Get the actual trigger function reference (needed because the module is mocked)
-const actualTriggerWorkoutReminders = jest.requireActual<typeof import('./notificationActions')>('./notificationActions').triggerWorkoutReminders;
+// --- Mocks and Spies ---
+// No need to mock getWorkoutsNeedingReminders if not mocking the module
+// const mockedGetWorkouts = ...
+const mockedDbGetAllSubscriptions = storage.dbGetAllSubscriptions as jest.Mock;
+const mockedDbDeleteSubscription = storage.dbDeleteSubscription as jest.Mock;
+// Access the mock directly from the top-level import
+const mockedWebPushSend = webpush.sendNotification as jest.Mock;
+const mockedSetVapidDetails = webpush.setVapidDetails as jest.Mock;
+// If the code uses default import internally, we might need this reference, but the direct one should work if mocking is correct
+// const mockedWebPushSendDefault = (webpush as any).default.sendNotification as jest.Mock;
 
 // Mock console
-const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
-// Mock environment variables for VAPID keys
-const OLD_ENV = process.env;
+// --- Test Suite --- 
+describe('triggerWorkoutReminders', () => {
+  let originalEnv: NodeJS.ProcessEnv;
 
-// Skip this suite due to difficulties mocking/tallying results reliably for server actions
-describe.skip('triggerWorkoutReminders', () => {
+  beforeAll(() => {
+    // Set ENV vars needed for VAPID setup 
+    originalEnv = { ...process.env }; 
+    process.env = {
+      ...originalEnv,
+      NEXT_PUBLIC_VAPID_PUBLIC_KEY: 'test-public-key',
+      VAPID_PRIVATE_KEY: 'test-private-key',
+    };
+    // VAPID setup should happen implicitly when the module loads
+  });
 
-    beforeEach(() => {
-        jest.clearAllMocks();
-        mockedGetWorkouts.mockClear(); 
-        process.env = { 
-            ...OLD_ENV,
-            NEXT_PUBLIC_VAPID_PUBLIC_KEY: 'test-public-key',
-            VAPID_PRIVATE_KEY: 'test-private-key',
-        };
-    });
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
 
-    afterAll(() => {
-        process.env = OLD_ENV;
-        consoleErrorSpy.mockRestore();
-        consoleWarnSpy.mockRestore();
-        consoleLogSpy.mockRestore();
-        jest.unmock('./notificationSubscriptionStorage');
-        jest.unmock('web-push');
-        jest.unmock('./notificationActions'); // Unmock the actions module
-    });
+  afterAll(() => {
+    process.env = originalEnv; 
+    consoleLogSpy.mockRestore();
+    consoleWarnSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+  });
 
-    const mockSub1: PushSubscription = { endpoint: 'ep1', keys: { p256dh: 'k1', auth: 'a1' } };
-    const mockSub2: PushSubscription = { endpoint: 'ep2', keys: { p256dh: 'k2', auth: 'a2' } };
-    const storedSub1 = { userId: 'USER_123', subscription: mockSub1 };
-    const storedSub2 = { userId: 'USER_456', subscription: mockSub2 };
-    const storedSub3_User1 = { userId: 'USER_123', subscription: { endpoint: 'ep3', keys: { p256dh: 'k3', auth: 'a3' } } };
-    const mockWorkoutUser1 = { userId: 'USER_123', workoutType: 'CORE', plannedAt: new Date().toISOString() };
-    const mockWorkoutUser456 = { userId: 'USER_456', workoutType: 'SWIM', plannedAt: new Date().toISOString() };
+  // Test using the actual placeholder getWorkoutsNeedingReminders for now
+  // Focus on testing the logic *after* workouts are fetched.
 
-    it('should return success with 0 sent/failed if no workouts need reminders', async () => {
-        mockedGetWorkouts.mockResolvedValueOnce([]); // Mock helper to return no workouts
-        mockedGetAllSubs.mockResolvedValueOnce([storedSub1]); // Provide some subs
-        
-        // Call the *actual* trigger function
-        const result = await actualTriggerWorkoutReminders(); 
-        
-        expect(result.success).toBe(true); // Should be true if no errors, even if 0 sent
-        expect(result.sent).toBe(0);
-        expect(result.failed).toBe(0);
-        expect(mockedSendNotification).not.toHaveBeenCalled();
-    });
-
-    it('should return success with 0 sent/failed if no subscriptions exist', async () => {
-        mockedGetWorkouts.mockResolvedValueOnce([mockWorkoutUser1]); // One workout
-        mockedGetAllSubs.mockResolvedValueOnce([]); // No subscriptions
-        
-        const result = await actualTriggerWorkoutReminders();
-        
-        expect(result.success).toBe(true); // Should be true if no errors
-        expect(result.sent).toBe(0);
-        expect(result.failed).toBe(0);
-        expect(mockedSendNotification).not.toHaveBeenCalled();
-    });
-
-    it('should send notifications successfully to relevant users', async () => {
-        mockedGetWorkouts.mockResolvedValueOnce([mockWorkoutUser1, mockWorkoutUser456]); // Workouts for both users
-        mockedGetAllSubs.mockResolvedValueOnce([storedSub1, storedSub2]);
-        mockedSendNotification.mockResolvedValue({ statusCode: 201 });
-
-        const result = await actualTriggerWorkoutReminders();
-
-        expect(result.success).toBe(true);
-        expect(result.sent).toBe(2);
-        expect(result.failed).toBe(0);
-        expect(mockedSendNotification).toHaveBeenCalledTimes(2);
-        expect(mockedSendNotification).toHaveBeenCalledWith(mockSub1, expect.any(String));
-        expect(mockedSendNotification).toHaveBeenCalledWith(mockSub2, expect.any(String));
-        expect(mockedDeleteSub).not.toHaveBeenCalled();
-    });
-
-    it('should handle multiple subscriptions for one user', async () => {
-        mockedGetWorkouts.mockResolvedValueOnce([mockWorkoutUser1]); // Only workout for USER_123
-        mockedGetAllSubs.mockResolvedValueOnce([storedSub1, storedSub2, storedSub3_User1]); // User1 has sub1 and sub3
-        mockedSendNotification.mockResolvedValue({ statusCode: 201 }); 
-
-        const result = await actualTriggerWorkoutReminders();
-
-        expect(result.success).toBe(true);
-        expect(result.sent).toBe(2); // Should only send to USER_123's subs (sub1, sub3)
-        expect(result.failed).toBe(0);
-        expect(mockedSendNotification).toHaveBeenCalledTimes(2);
-        expect(mockedSendNotification).toHaveBeenCalledWith(storedSub1.subscription, expect.any(String));
-        expect(mockedSendNotification).toHaveBeenCalledWith(storedSub3_User1.subscription, expect.any(String));
-        expect(mockedSendNotification).not.toHaveBeenCalledWith(storedSub2.subscription, expect.any(String));
-    });
+  it('should return success with 0 sent if no subscriptions are found', async () => {
+    // Placeholder getWorkouts returns USER_123, USER_456 workouts
+    mockedDbGetAllSubscriptions.mockResolvedValueOnce([]); // Mock no subs
     
-    it('should avoid sending duplicate notifications to the same endpoint if user has multiple workouts', async () => {
-        const mockWorkoutUser1_Later = { ...mockWorkoutUser1, workoutType: 'STRENGTH' };
-        mockedGetWorkouts.mockResolvedValueOnce([mockWorkoutUser1, mockWorkoutUser1_Later]); // Two workouts for USER_123
-        mockedGetAllSubs.mockResolvedValueOnce([storedSub1, storedSub3_User1]); // User1 has two subs
-        mockedSendNotification.mockResolvedValue({ statusCode: 201 });
+    const result = await triggerWorkoutReminders();
 
-        const result = await actualTriggerWorkoutReminders();
+    expect(result.success).toBe(true);
+    expect(result.sent).toBe(0);
+    expect(result.failed).toBe(0);
+    // getWorkoutsNeedingReminders is internal, not mocked here
+    expect(mockedDbGetAllSubscriptions).toHaveBeenCalledTimes(1);
+    expect(mockedWebPushSend).not.toHaveBeenCalled();
+  });
 
-        expect(result.success).toBe(true);
-        expect(result.sent).toBe(2); // Should send only ONCE to each endpoint (ep1, ep3)
-        expect(result.failed).toBe(0);
-        expect(mockedSendNotification).toHaveBeenCalledTimes(2); 
-        expect(mockedSendNotification).toHaveBeenCalledWith(storedSub1.subscription, expect.any(String));
-        expect(mockedSendNotification).toHaveBeenCalledWith(storedSub3_User1.subscription, expect.any(String));
-    });
-
-    it('should handle failed notifications and report errors', async () => {
-        mockedGetWorkouts.mockResolvedValueOnce([mockWorkoutUser1, mockWorkoutUser456]);
-        mockedGetAllSubs.mockResolvedValueOnce([storedSub1, storedSub2]);
-        mockedSendNotification
-            .mockResolvedValueOnce({ statusCode: 201 }) // sub1 for USER_123 succeeds
-            .mockRejectedValueOnce({ statusCode: 500, body: 'Push service error' }); // sub2 for USER_456 fails
-
-        const result = await actualTriggerWorkoutReminders();
-
-        expect(result.success).toBe(false); // Success is false because failCount > 0
-        expect(result.sent).toBe(1);
-        expect(result.failed).toBe(1);
-        expect(result.errors).toHaveLength(1);
-        expect(result.errors[0]).toEqual({ statusCode: 500, message: 'Push service error' });
-        expect(mockedSendNotification).toHaveBeenCalledTimes(2);
-        expect(mockedDeleteSub).not.toHaveBeenCalled(); // 500 error doesn't trigger delete
-    });
-
-    it('should delete subscription if send fails with 404 or 410', async () => {
-        mockedGetWorkouts.mockResolvedValueOnce([mockWorkoutUser1, mockWorkoutUser456]);
-        mockedGetAllSubs.mockResolvedValueOnce([storedSub1, storedSub2]);
-        mockedSendNotification
-            .mockRejectedValueOnce({ statusCode: 410, body: 'Gone' }) // sub1 for USER_123 is gone
-            .mockResolvedValueOnce({ statusCode: 201 }); // sub2 for USER_456 succeeds
-
-        const result = await actualTriggerWorkoutReminders();
-
-        expect(result.success).toBe(false); // Success is false because failCount > 0
-        expect(result.sent).toBe(1);
-        expect(result.failed).toBe(1);
-        expect(result.errors).toHaveLength(1);
-        expect(result.errors[0]).toEqual({ statusCode: 410, message: 'Gone' });
-        expect(mockedSendNotification).toHaveBeenCalledTimes(2);
-        expect(mockedDeleteSub).toHaveBeenCalledTimes(1);
-        expect(mockedDeleteSub).toHaveBeenCalledWith(mockSub1.endpoint); // Should delete the failed one
-    });
+  it('should send notifications to relevant user subscriptions', async () => {
+    const mockSub1User1 = { endpoint: 'ep1', keys: { p256dh: 'k1', auth: 'a1' } };
+    const mockSub2User1 = { endpoint: 'ep2', keys: { p256dh: 'k2', auth: 'a2' } };
+    const mockSubUser2 = { endpoint: 'ep3', keys: { p256dh: 'k3', auth: 'a3' } };
     
-    it('should return error if VAPID keys are not configured', async () => {
-        process.env = {
-            ...OLD_ENV,
-            NEXT_PUBLIC_VAPID_PUBLIC_KEY: undefined,
-            VAPID_PRIVATE_KEY: undefined,
-        };
-        const result = await actualTriggerWorkoutReminders();
-        expect(result.success).toBe(false);
-        expect(result.sent).toBe(0);
-        expect(result.failed).toBe(0);
-        expect(result.errors[0]).toEqual({ error: 'VAPID keys not configured' });
-        expect(mockedGetAllSubs).not.toHaveBeenCalled();
-        expect(mockedSendNotification).not.toHaveBeenCalled();
-    });
-}); 
+    // Placeholder getWorkouts returns USER_123, USER_456 workouts
+    mockedDbGetAllSubscriptions.mockResolvedValueOnce([
+      { userId: 'USER_123', subscription: mockSub1User1 },
+      { userId: 'USER_123', subscription: mockSub2User1 }, 
+      { userId: 'USER_456', subscription: mockSubUser2 },
+      { userId: 'USER_999', subscription: { endpoint: 'ep4'} as any }, // Unrelated user
+    ]);
+    mockedWebPushSend.mockResolvedValue({ statusCode: 201 });
+    
+    const result = await triggerWorkoutReminders();
+    
+    expect(result.success).toBe(true);
+    expect(result.sent).toBe(3); // Sent to ep1, ep2, ep3 based on placeholder workouts
+    expect(result.failed).toBe(0);
+    expect(mockedWebPushSend).toHaveBeenCalledTimes(3);
+    expect(mockedWebPushSend).toHaveBeenCalledWith(mockSub1User1, expect.any(String));
+    expect(mockedWebPushSend).toHaveBeenCalledWith(mockSub2User1, expect.any(String));
+    expect(mockedWebPushSend).toHaveBeenCalledWith(mockSubUser2, expect.any(String));
+    expect(mockedDbDeleteSubscription).not.toHaveBeenCalled();
+  });
+
+   it('should handle send failures and tally correctly', async () => {
+    const mockSub1 = { endpoint: 'ep1', keys: { p256dh: 'k1', auth: 'a1' } };
+    
+    // Placeholder getWorkouts returns USER_123 workout
+    mockedDbGetAllSubscriptions.mockResolvedValueOnce([
+      { userId: 'USER_123', subscription: mockSub1 }, 
+    ]);
+    mockedWebPushSend.mockRejectedValueOnce({ statusCode: 500, body: 'Server Error' }); 
+    
+    const result = await triggerWorkoutReminders();
+
+    expect(result.success).toBe(false); 
+    expect(result.sent).toBe(0);
+    expect(result.failed).toBe(1);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toEqual({ statusCode: 500, message: 'Server Error' });
+    expect(mockedWebPushSend).toHaveBeenCalledTimes(1);
+    expect(mockedWebPushSend).toHaveBeenCalledWith(mockSub1, expect.any(String));
+    expect(mockedDbDeleteSubscription).not.toHaveBeenCalled();
+  });
+
+  it('should delete subscription if send returns 410 Gone', async () => {
+    const mockSub1 = { endpoint: 'ep1-gone', keys: { p256dh: 'k1', auth: 'a1' } };
+    const mockSub2 = { endpoint: 'ep2-ok', keys: { p256dh: 'k2', auth: 'a2' } };
+
+    // Placeholder getWorkouts returns USER_123, USER_456 workouts
+    mockedDbGetAllSubscriptions.mockResolvedValueOnce([
+      { userId: 'USER_123', subscription: mockSub1 },
+      { userId: 'USER_456', subscription: mockSub2 },
+    ]);
+    mockedWebPushSend
+        .mockRejectedValueOnce({ statusCode: 410, body: 'Gone' }) // For USER_123
+        .mockResolvedValueOnce({ statusCode: 201 }); // For USER_456
+    mockedDbDeleteSubscription.mockResolvedValueOnce(undefined);
+    
+    const result = await triggerWorkoutReminders();
+
+    expect(result.success).toBe(false); 
+    expect(result.sent).toBe(1); 
+    expect(result.failed).toBe(1);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toEqual({ statusCode: 410, message: 'Gone' });
+    expect(mockedWebPushSend).toHaveBeenCalledTimes(2);
+    expect(mockedWebPushSend).toHaveBeenCalledWith(mockSub1, expect.any(String));
+    expect(mockedWebPushSend).toHaveBeenCalledWith(mockSub2, expect.any(String));
+    expect(mockedDbDeleteSubscription).toHaveBeenCalledTimes(1);
+    expect(mockedDbDeleteSubscription).toHaveBeenCalledWith(mockSub1.endpoint);
+  });
+
+  it('should delete subscription if send returns 404 Not Found', async () => {
+     const mockSub1 = { endpoint: 'ep1-404', keys: { p256dh: 'k1', auth: 'a1' } };
+     
+     // Placeholder getWorkouts returns USER_123 workout
+     mockedDbGetAllSubscriptions.mockResolvedValueOnce([
+      { userId: 'USER_123', subscription: mockSub1 },
+    ]);
+    mockedWebPushSend.mockRejectedValueOnce({ statusCode: 404, body: 'Not Found' });
+    mockedDbDeleteSubscription.mockResolvedValueOnce(undefined);
+    
+    const result = await triggerWorkoutReminders();
+
+    expect(result.success).toBe(false);
+    expect(result.sent).toBe(0);
+    expect(result.failed).toBe(1);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toEqual({ statusCode: 404, message: 'Not Found' });
+    expect(mockedWebPushSend).toHaveBeenCalledTimes(1);
+    expect(mockedDbDeleteSubscription).toHaveBeenCalledTimes(1);
+    expect(mockedDbDeleteSubscription).toHaveBeenCalledWith(mockSub1.endpoint);
+  });
+
+  // Test for missing VAPID keys needs careful isolation
+  it('should return error if VAPID keys are missing', async () => {
+    // Store current env
+    const currentEnv = { ...process.env }; 
+    // Set env vars without keys
+    delete process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    delete process.env.VAPID_PRIVATE_KEY;
+
+    // Reset modules to force re-evaluation of the VAPID check
+    jest.resetModules();
+    // Re-import the specific function needed after reset
+    const { triggerWorkoutReminders: isolatedTrigger } = require('./notificationActions');
+    // Re-import mocks as well, as they might be reset
+    const isolatedStorage = require('./notificationSubscriptionStorage');
+    const isolatedMockedGetAllSubs = isolatedStorage.dbGetAllSubscriptions as jest.Mock;
+    // web-push mock will be reapplied by jest
+    const isolatedWebPush = require('web-push'); 
+    const isolatedMockedWebPushSend = isolatedWebPush.sendNotification as jest.Mock;
+
+    // Call the isolated function
+    const result = await isolatedTrigger();
+
+    // Restore env vars immediately
+    process.env = currentEnv; 
+    // Reset modules again to restore normal state for other tests
+    jest.resetModules();
+    require('./notificationActions'); // Re-run setup with correct keys
+
+    expect(result.success).toBe(false);
+    expect(result.sent).toBe(0);
+    expect(result.failed).toBe(0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]?.error).toBe('VAPID keys not configured or web-push unavailable');
+    // Check the mocks from the isolated context
+    expect(isolatedMockedGetAllSubs).not.toHaveBeenCalled();
+    expect(isolatedMockedWebPushSend).not.toHaveBeenCalled();
+  });
+
+});

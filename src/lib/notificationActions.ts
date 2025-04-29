@@ -5,24 +5,33 @@ import webpush from 'web-push';
 import type { PushSubscription, SendResult } from 'web-push';
 
 // Placeholder: VAPID keys should be loaded securely from environment variables
-const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+// Remove module-scoped variables
+// const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+// const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
 
-// Set VAPID details (only run if keys are present and web-push is imported)
-if (webpush && vapidPublicKey && vapidPrivateKey) {
-    try {
-        webpush.setVapidDetails(
-            'mailto:admin@plankyou.app', // Replace with a real admin/support email
-            vapidPublicKey,
-            vapidPrivateKey
-        );
-        console.log("[WebPush] VAPID details set.");
-    } catch (error) {
-         console.error("[WebPush] Failed to set VAPID details:", error);
-         // Potentially prevent sending if setup fails
+// Set VAPID details - this might still run at module load, check if needed
+// We can potentially move this setup inside the function as well if necessary,
+// but let's try reading keys inside first.
+// Ensure webpush mock is available here.
+if (typeof webpush?.setVapidDetails === 'function') {
+    const key = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    const secret = process.env.VAPID_PRIVATE_KEY;
+    if (key && secret) {
+        try {
+            webpush.setVapidDetails(
+                'mailto:admin@plankyou.app', 
+                key,
+                secret
+            );
+            console.log("[WebPush] VAPID details set attempt during module load.");
+        } catch (error) {
+             console.error("[WebPush] Failed to set VAPID details during module load:", error);
+        }
+    } else {
+        console.warn("[WebPush] VAPID keys not configured at module load time.");
     }
 } else {
-     console.warn("[WebPush] VAPID keys not fully configured in environment variables. Push notifications will not be sent.");
+     console.warn("[WebPush] webpush or setVapidDetails mock not ready at module load.");
 }
 
 // Placeholder: Function to get upcoming workouts (replace with actual data source)
@@ -54,10 +63,28 @@ async function getWorkoutsNeedingReminders(withinMinutes: number = 35): Promise<
 export async function triggerWorkoutReminders(): Promise<{ success: boolean; sent: number; failed: number; errors: any[] }> {
     console.log('[Notifications Trigger] Starting workout reminder process...');
 
-    if (!webpush || !vapidPublicKey || !vapidPrivateKey) {
-        console.error('[Notifications Trigger] VAPID keys not configured or web-push not initialized. Cannot send notifications.');
-        return { success: false, sent: 0, failed: 0, errors: [{ error: 'VAPID keys not configured' }] };
+    // Read VAPID keys from process.env *inside* the function
+    const currentVapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    const currentVapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+
+    // Check for keys *inside* the function
+    // Also ensure webpush object/mock itself exists
+    if (!webpush || typeof webpush.sendNotification !== 'function' || !currentVapidPublicKey || !currentVapidPrivateKey) {
+        console.error('[Notifications Trigger] WebPush not configured or VAPID keys missing. Cannot send.');
+        // Optionally re-attempt VAPID setup here if keys are present but setup failed initially
+        if (webpush && typeof webpush.setVapidDetails === 'function' && currentVapidPublicKey && currentVapidPrivateKey) {
+             try {
+                 webpush.setVapidDetails('mailto:admin@plankyou.app', currentVapidPublicKey, currentVapidPrivateKey);
+                 console.log("[WebPush] Re-attempted VAPID setup inside function.");
+                 // Potentially proceed if setup now succeeds, but safer to return error if initial setup failed
+             } catch (setupError) {
+                 console.error("[WebPush] Failed to set VAPID details inside function:", setupError);
+             }
+        }
+        return { success: false, sent: 0, failed: 0, errors: [{ error: 'VAPID keys not configured or web-push unavailable' }] };
     }
+
+    // Assume VAPID details were set correctly at module load or re-attempted if needed
 
     let sentCount = 0;
     let failCount = 0;
@@ -135,24 +162,56 @@ export async function triggerWorkoutReminders(): Promise<{ success: boolean; sen
         // 5. Wait for all send attempts to complete and tally results
         const results = await Promise.allSettled(sendPromises);
         results.forEach(result => {
+            // All promises should fulfill because the .catch inside the loop handles rejections
+            // and returns an object like { success: false, error: ... }
             if (result.status === 'fulfilled') {
-                // result.value is the object { success: boolean, error?: object } returned above
+                // Check the custom success flag returned by our promise handler
                 if (result.value.success) { 
                     sentCount++; 
                 } else {
+                    // This means the .catch block ran and returned { success: false, error: ... }
                     failCount++; 
-                    if(result.value.error) errors.push(result.value.error); // Push captured error details
+                    if(result.value.error) errors.push(result.value.error); 
                 }
-            } else { 
-                failCount++;
-                 console.error("[Notifications Trigger] Unexpected promise rejection during send:", result.reason);
-                 errors.push({ error: 'send_promise_rejected', reason: result.reason });
+            } else {
+                // This block should ideally not be reached if the .catch handler is robust
+                // Log unexpected rejections just in case
+                 console.error("[Notifications Trigger] Unexpected promise rejection wasn't caught earlier:", result.reason);
+                 failCount++; 
+                 // Try to extract some info from the reason
+                 const reason = result.reason;
+                 errors.push({ 
+                     error: 'unhandled_send_rejection', 
+                     statusCode: reason?.statusCode, 
+                     message: reason?.body || reason?.message || String(reason) 
+                 });
             }
         });
 
         console.log(`[Notifications Trigger] Finished sending reminders. Sent: ${sentCount}, Failed: ${failCount}`);
-        // Success = No failures occurred.
-        return { success: failCount === 0, sent: sentCount, failed: failCount, errors }; 
+        // --- Final Result ---
+        // Determine overall success based on failCount
+        const overallSuccess = failCount === 0;
+
+        if (!overallSuccess) {
+            console.warn(`[Notifications Trigger] Completed with errors. Failed: ${failCount}`);
+            // Return failure, include collected errors array, counts
+            return {
+                success: false, 
+                errors: errors, // Use the existing errors array 
+                sent: sentCount,
+                failed: failCount,
+            };
+        } else {
+             console.log(`[Notifications Trigger] Completed successfully. Sent: ${sentCount}`);
+            // Return success, counts, and empty errors array
+            return {
+                success: true,
+                sent: sentCount,
+                failed: failCount,
+                errors: [], // Explicitly return empty errors array on success
+            };
+        }
 
     } catch (error) {
         console.error('[Notifications Trigger] Unexpected error during reminder process:', error);

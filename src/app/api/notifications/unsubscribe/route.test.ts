@@ -9,22 +9,21 @@ jest.mock('@/lib/notificationSubscriptionStorage', () => ({
     dbDeleteSubscription: jest.fn(),
 }));
 
-// Mock NextResponse (same as in subscribe test)
-jest.mock('next/server', () => {
-    const originalModule = jest.requireActual('next/server'); 
-    return {
-        ...originalModule,
-        NextResponse: {
-            json: jest.fn((body, init) => ({
-                status: init?.status || 200,
-                headers: new Headers(init?.headers),
+// Simplify NextResponse mock (mirroring subscribe test)
+jest.mock('next/server', () => ({
+    NextResponse: {
+        json: jest.fn((body, init) => {
+            const status = init?.status ?? 200;
+            return {
+                status: status,
+                headers: new Headers(init?.headers), // Use standard Headers
                 json: async () => Promise.resolve(body),
                 text: async () => Promise.resolve(JSON.stringify(body)),
-                ok: (init?.status || 200) >= 200 && (init?.status || 200) < 300,
-            })),
-        },
-    };
-});
+                ok: status >= 200 && status < 300,
+            };
+        }),
+    },
+}));
 
 // Mock console
 const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
