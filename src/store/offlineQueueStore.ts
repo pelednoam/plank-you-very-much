@@ -1,15 +1,16 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { createIdbStorage } from '@/lib/idbStorage';
+import type { Workout, Meal } from '@/types'; // Assuming these might be payloads
 
 /**
  * Represents a single action that needs to be synced when the app comes back online.
  */
-export interface QueuedAction {
+export interface QueuedAction<T = any> {
   id: string; // Unique ID for the queued item
   timestamp: string; // ISO timestamp when the action was queued
   type: string; // Identifier for the action (e.g., 'planner/addWorkout', 'nutrition/addMeal')
-  payload: any; // Data associated with the action
+  payload: T; // Data associated with the action
   metadata?: Record<string, any>; // Optional additional data (e.g., temp IDs for optimistic UI)
 }
 
@@ -24,6 +25,9 @@ interface OfflineQueueState {
   // processor?: { registerDomain: (domain: string, handler: (action: QueuedAction) => void) => void };
 }
 
+// Create the IDB storage instance, typed for the PARTIAL state we persist
+const idbStorage = createIdbStorage<{ pendingActions: QueuedAction[] }>();
+
 export const useOfflineQueueStore = create<OfflineQueueState>()(
   persist(
     (set, get) => ({
@@ -36,31 +40,30 @@ export const useOfflineQueueStore = create<OfflineQueueState>()(
           timestamp: new Date().toISOString(),
         };
         set((state) => ({ 
-          pendingActions: [...state.pendingActions, newAction].sort((a, b) => a.timestamp.localeCompare(b.timestamp)) // Keep sorted by time?
+          pendingActions: [...state.pendingActions, newAction] 
         }));
-        console.log(`[Offline Queue] Action added: ${newAction.type}, ID: ${newAction.id}`);
+        console.log("[Offline Queue] Action added:", newAction);
       },
 
-      getActions: () => {
-        // Return a copy to prevent direct mutation?
-        return [...get().pendingActions]; 
-      },
+      getActions: () => get().pendingActions,
 
       removeAction: (id) => {
         set((state) => ({
           pendingActions: state.pendingActions.filter(action => action.id !== id)
         }));
-         console.log(`[Offline Queue] Action removed: ID: ${id}`);
+        console.log(`[Offline Queue] Action removed: ${id}`);
       },
 
       clearQueue: () => {
         set({ pendingActions: [] });
-        console.log('[Offline Queue] Queue cleared.');
+        console.log("[Offline Queue] Queue cleared.");
       },
     }),
     {
-      name: 'offline-action-queue', // Unique name for storage
-      storage: createIdbStorage<OfflineQueueState>(), // Store the full state type
+      name: 'offline-action-queue',
+      storage: idbStorage,
+      // Only persist the pendingActions array
+      partialize: (state) => ({ pendingActions: state.pendingActions }),
     }
   )
 ); 

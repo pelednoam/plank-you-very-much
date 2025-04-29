@@ -55,10 +55,10 @@ export interface MediaAsset {
 
 export interface FitbitDaily {
   date: string; // yyyy-MM-dd format
-  steps: number;
-  restingHeartRate?: number;
-  caloriesOut: number;
-  sleepMinutes?: number;
+  steps?: number; // Make optional
+  restingHeartRate?: number; // Already optional
+  caloriesOut?: number; // Make optional
+  sleepMinutes?: number; // Already optional
 }
 
 // Added based on fitbitActions requirements
@@ -134,4 +134,30 @@ export interface UserProfile {
   // Add fields for client-side token management
   fitbitAccessToken?: string;
   fitbitExpiresAt?: number; // Store as seconds since epoch timestamp
+}
+
+// --- Planner Types --- Moved from src/features/planner/types.ts
+
+// Represents a single day in the weekly plan
+export interface PlannedDay {
+    date: string; // YYYY-MM-DD
+    workout: Workout | null; // Workout scheduled for the day, or null for rest/empty
+    // Could add flags like 'isRestDay', 'isFlexible' etc. later
+}
+
+// Represents the entire weekly plan
+export interface WeeklyPlan {
+    startDate: string; // YYYY-MM-DD, typically a Monday
+    endDate: string; // YYYY-MM-DD, typically a Sunday
+    // Use Workout[] directly instead of PlannedDay[] if plan generation outputs Workout[]
+    // days: PlannedDay[]; 
+    workouts: Workout[]; // Aligning with generateWeeklyPlan output
+}
+
+// Placeholder for settings that influence plan generation (Keep in types? Or move to planner feature?)
+// Let's keep it here for now if generatePlan uses it directly.
+export interface PlannerSettings {
+    // Example: User preferences, constraints like 'no climbing on Tuesdays'
+    preferredRestDay?: number; // 0 = Sunday, 1 = Monday, ... 6 = Saturday
+    backPainFlag?: boolean; // To trigger modifications later
 } 

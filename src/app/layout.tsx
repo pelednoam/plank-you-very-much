@@ -11,6 +11,7 @@ import React, { useState, useEffect } from 'react'; // Import hooks
 import { Button } from '@/components/ui/button'; // Import Button
 import { Download } from 'lucide-react'; // Import icon
 import { OfflineQueueProcessor } from '@/components/OfflineQueueProcessor'; // Import the processor
+import { initializeSyncManager } from '@/lib/offlineSyncManager'; // Import Sync Manager
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -38,12 +39,13 @@ export default function RootLayout({
   const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
 
+  // Effect for PWA install prompt
   useEffect(() => {
     // Explicitly type the event in the listener using the globally defined type
     const handleBeforeInstallPrompt = (event: BeforeInstallPromptEvent) => {
-      event.preventDefault(); 
-      console.log(''beforeinstallprompt' event fired', event);
-      setInstallPromptEvent(event); 
+      event.preventDefault();
+      console.log('beforeinstallprompt event fired', event);
+      setInstallPromptEvent(event);
       setShowInstallButton(true);
     };
 
@@ -51,12 +53,18 @@ export default function RootLayout({
     // @ts-ignore Error persists despite global type definitions
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
-    // Cleanup listener 
+    // Cleanup listener
     return () => {
       // @ts-ignore Error persists despite global type definitions
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     };
   }, []);
+
+  // Effect for initializing the Offline Sync Manager
+  useEffect(() => {
+    console.log("Initializing Offline Sync Manager...");
+    initializeSyncManager();
+  }, []); // Empty dependency array ensures this runs only once on mount
 
   const handleInstallClick = async () => {
     if (!installPromptEvent) {

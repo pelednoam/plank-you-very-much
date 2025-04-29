@@ -1,7 +1,6 @@
 import dayjs from 'dayjs';
 import { v4 as uuidv4 } from 'uuid';
-import type { WorkoutType } from '@/types'; // Assuming WorkoutType is defined in types/index.ts
-import type { Workout, UserProfile } from '@/types'; // Import UserProfile
+import type { WorkoutType, Workout, UserProfile, WeeklyPlan } from '@/types';
 
 // Function to shuffle an array (Fisher-Yates)
 function shuffleArray<T>(array: T[]): T[] {
@@ -44,7 +43,7 @@ const isFatLossGoalActive = (profile?: UserProfile | null): boolean => {
 export const generateWeeklyPlan = (
     startDate: string, // Should be 'YYYY-MM-DD' format of a Monday
     userProfile?: UserProfile | null // Optional user profile
-): { startDate: string; endDate: string; workouts: Workout[] } => {
+): WeeklyPlan => {
     const start = dayjs(startDate);
     const endDate = start.add(6, 'days').format('YYYY-MM-DD');
     const workouts: Workout[] = [];
@@ -92,9 +91,10 @@ export const generateWeeklyPlan = (
         workouts.push(workout);
     }
 
+    // Return object matching the WeeklyPlan interface
     return {
         startDate,
         endDate,
-        workouts,
+        workouts, // Directly return workouts array
     };
 }; 

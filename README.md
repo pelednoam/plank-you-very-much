@@ -23,11 +23,11 @@ This project follows the specifications outlined in [`Technical-Specification-an
 *   **Data Persistence:** IndexedDB via `idb` library _(As specified)_.
 *   **Markdown:** `gray-matter` (frontmatter), `react-markdown` + `remark-gfm` (rendering) _(Specific libraries chosen during implementation)_. 
 *   **Integrations:** Fitbit Web API (OAuth 2.0 - partial), Google Health Connect / Apple HealthKit (pending), Web NFC API (pending) _(As specified)_. 
-*   **Testing:** Jest + React Testing Library (Setup complete, minimal tests) _(Spec also mentioned Cypress E2E - not yet implemented)_. 
+*   **Testing:** Jest + React Testing Library (Setup complete, core store tests implemented) _(Spec also mentioned Cypress E2E - not yet implemented)_. 
 *   **PWA:** **`@serwist/next`** (using standard `sw.js`, requires verification) _(Spec mentioned older `@ducanh2912/next-pwa`; `@serwist/next` is now installed, likely replacing it)_. 
 *   **Other Libraries:** `uuid`, `lucide-react` (icons), `sonner` (toasts), `core-js` (polyfills) _(Chosen during implementation)_. 
 
-## 3. Current Status (as of 2025-04-29)
+## 3. Current Status (as of 2025-04-29 - Includes Offline Sync)
 
 ### Implemented Features (Highlights & Deviations from Spec)
 
@@ -38,7 +38,15 @@ This project follows the specifications outlined in [`Technical-Specification-an
     *   **Deviation:** `UserProfile` includes additional fields and uses App Router specific enums/types.
     *   **Deviation:** Added `Planner` types, `FitbitTokenData`, etc.
 *   **State Management (Zustand + IndexedDB):** Core stores (`userProfileStore`, `metricsStore`, `activityStore`, `offlineQueueStore`, `plannerStore`) created using `idbStorage` for persistence.
-*   **Routing & Layout:** Basic App Router layout and core pages implemented.
+    *   **Offline Queue Store (`offlineQueueStore`)**: Implemented to queue actions (e.g., workout completion) when offline. Persists only `pendingActions` to IDB.
+    *   **Planner Store (`plannerStore`)**: Handles plan generation and workout updates. Includes optimistic UI for `markWorkoutComplete` and queues action via `offlineQueueStore` if offline or simulated sync fails. Persists only `currentPlan` to IDB.
+    *   **Deviation:** Required `partialize` option in `persist` middleware for stores using IDB to avoid `DataCloneError` with non-serializable functions.
+*   **Offline Sync Manager:**
+    *   Implemented in `src/lib/offlineSyncManager.ts`.
+    *   Initialized on app load via `src/app/layout.tsx`.
+    *   Processes actions from `offlineQueueStore` when online (simulated backend call).
+    *   Handles basic success/failure (leaves failed actions in queue).
+*   **Routing & Layout:** Basic App Router layout (`src/app/layout.tsx`) and core pages implemented.
 *   **UI Components (shadcn/ui):** Core components added.
 *   **Onboarding Flow (`/onboard`):** Fully implemented as per Spec 4.1.
 *   **Dashboard (`/`):** Implemented as per Spec 4.6, including charts and today's workouts. **Added:** Workout items link to details modal.
@@ -49,7 +57,7 @@ This project follows the specifications outlined in [`Technical-Specification-an
     *   **Added:** Dynamic workout **duration adjustment** based on user fat loss goals (partially addresses Spec 4.3).
     *   **Deviation:** Full dynamic/adaptive generation (Spec 4.3, 8.4) based on feedback/progress is **missing**.
     *   **Added:** Workout items link to details modal.
-*   **Workout Logging:** **Added `WorkoutDetailsModal`** component for logging performance (duration, notes, rating, completion), integrated into Dashboard and Planner. _(Fulfills implicit logging need)_.
+*   **Workout Logging:** **Added `WorkoutDetailsModal`** component for logging performance (duration, notes, rating, completion), integrated into Dashboard and Planner. Supports offline queuing via `plannerStore`. _(Fulfills implicit logging need)_.
 *   **Goal Engine:** Fully implemented UI (Settings) and integration with calculation functions (`calculateCalorieTarget`, `calculateProteinTarget`).
 *   **Knowledge Base (`/knowledge`):** Implemented as per Spec 4.7.
 *   **Settings (`/settings`):** Core sections implemented (Profile, Goals, Data Export). Integrations and Notifications UI exists.
@@ -70,42 +78,51 @@ This project follows the specifications outlined in [`Technical-Specification-an
     *   **Deviation:** Uses JavaScript service worker (`public/sw.js`) instead of Spec's proposed TypeScript. Requires verification with PWA build.
     *   **Issue:** API route tests (`subscribe/route.test.ts`, `unsubscribe/route.test.ts`) are **skipped** due to issues mocking `NextResponse.json()` in Jest.
 *   **Testing:**
-    *   Jest + RTL setup complete (`jest.config.ts`, `jest.setup.js`).
-    *   Unit tests implemented for:
+    *   Jest + RTL setup complete (`jest.config.ts`, `jest.setup.js` includes mocks for `crypto.randomUUID`, `navigator.onLine`, `fetch`, IDB).
+    *   Unit tests implemented and **passing** for:
         *   `src/lib/calculationUtils.test.ts`
         *   `src/store/metricsStore.test.ts`
         *   `src/features/planner/utils/generatePlan.test.ts`
+        *   `src/store/offlineQueueStore.test.ts`
+        *   `src/store/plannerStore.test.ts` (covers optimistic updates, offline/failure queuing)
+        *   `src/lib/offlineSyncManager.test.ts`
     *   **Skipped Tests:** `fitbitActions.test.ts`, `api/notifications/subscribe/route.test.ts`, `api/notifications/unsubscribe/route.test.ts`.
     *   **Missing:** Component tests, E2E tests (Cypress).
 *   **Toast Notifications:** Implemented using `sonner`.
 *   **Data Export:** Implemented in Settings using `exportUtils.ts`.
+
+### Current Issues / Known Limitations
+
+*   **Fitbit Integration:** Linter errors in `fitbitActions.ts` related to `cookies()`. Tests for `fetchFitbitData` are **skipped**.
+*   **Notifications:** API route tests (`subscribe/route.test.ts`, `unsubscribe/route.test.ts`) are **skipped**. Service worker functionality needs PWA build verification. Backend uses placeholder storage and does not send pushes.
+*   **Offline Sync Manager:** Uses simulated backend calls; requires real API integration. Lacks sophisticated error handling (e.g., retries, user feedback on permanent failure).
+*   **Testing:** Component tests and E2E tests (Cypress) are **missing**.
+*   **Layout (`layout.tsx`):** Persistent linter errors regarding `BeforeInstallPromptEvent` type, despite global type definition in `src/types/global.d.ts`. The `@ts-ignore` directives are currently suppressing these.
 
 ### Missing Features / Next Steps (Prioritized)
 
 **High Priority (Core Functionality & Spec Alignment):**
 
 *   **Fitbit Integration (Complete Sync & Fixes):** _(Address deviations from Spec 8A)_.
-    *   Implement **full data sync logic** within server actions (sleep, HR, daily activity summaries) and integrate results into stores (e.g., `activityStore`).
+    *   Implement **full data sync logic** (sleep, HR, daily activity summaries) & integrate results.
     *   Replace placeholder `getCurrentUserId` with actual authentication.
-    *   Resolve **linter errors** in `fitbitActions.ts`.
-    *   Investigate and **fix skipped tests** in `fitbitActions.test.ts`.
+    *   Resolve **linter errors** & **fix skipped tests** in `fitbitActions.ts`.
 *   **Notifications (Implement Backend & Fixes):** _(Address deviations from Spec 11 & 16)_.
-    *   Implement **real database storage** for subscriptions (replace `notificationSubscriptionStorage.ts`).
-    *   Implement **actual backend push service** using `web-push` in `notificationActions.ts`.
-    *   Implement real notification triggers (e.g., scheduled job for workout reminders).
-    *   Investigate and **fix skipped tests** for API routes.
-    *   Verify service worker functionality (`sw.js`) in a PWA build.
-*   **Planner Enhancements (Full Adaptive Generation):** Implement the core adaptive logic based on user progress/feedback as per Spec 4.3 & 8.4 (beyond just duration adjustment).
-*   **Offline Sync (Decision & Implementation):** Evaluate need and implement robust offline queue/sync logic using `offlineQueueStore` (Spec 15).
+    *   Implement **real database storage** for subscriptions.
+    *   Implement **actual backend push service** using `web-push`.
+    *   Implement real notification triggers.
+    *   **Fix skipped tests** for API routes & verify `sw.js`.
+*   **Offline Sync Manager (Real Backend & Error Handling):** Replace placeholder sync logic with actual API calls. Implement retry logic / user feedback for failures.
+*   **Planner Enhancements (Full Adaptive Generation):** Implement adaptive logic based on user progress/feedback (Spec 4.3 & 8.4).
 
 **Medium Priority (Completing Features & Polish):**
 
 *   **Wyze Scale Integration:** Implement Health Connect/Kit bridge or CSV import (Spec 8F).
-*   **NFC Triggers:** Implement Web NFC scanning, connect scan action to `WorkoutDetailsModal`, implement QR fallback (Spec 8B, 8E).
-*   **Media Library Integration:** Implement Meal Gallery & Exercise Video components and integrate with data models (Spec 4.10, 4.11).
-*   **Settings (Full):** Implement backend sync for notification preferences, refine data export options.
-*   **Testing:** Add Component tests (React Testing Library) and E2E tests (Cypress) (Spec 13).
-*   **Styling & UX:** General polish, ensure accessibility (Spec 12).
+*   **NFC Triggers:** Implement Web NFC scanning, connect to workout logging, implement QR fallback (Spec 8B, 8E).
+*   **Media Library Integration:** Implement Meal Gallery & Exercise Video components (Spec 4.10, 4.11).
+*   **Settings (Full):** Implement backend sync for notification preferences, refine data export.
+*   **Testing:** Add Component tests (RTL) and E2E tests (Cypress) (Spec 13).
+*   **Styling & UX:** General polish, accessibility review (Spec 12).
 *   **CI/CD:** Finalize workflow (Spec 14).
 
 **Low Priority (v2.0 / Future):**
@@ -146,10 +163,10 @@ This project follows the specifications outlined in [`Technical-Specification-an
 
 5.  **Run Tests:**
     ```bash
+    # Run all tests
+    pnpm test
     # Run specific test file
-    pnpm exec jest src/store/metricsStore.test.ts
-    # Run all tests (assuming configured in package.json/jest.config)
-    # pnpm test
+    # pnpm exec jest src/store/metricsStore.test.ts
     ```
     ```bash
     # Run E2E tests (requires Cypress setup)
