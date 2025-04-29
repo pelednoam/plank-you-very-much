@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
+import { storeFitbitTokens } from '@/lib/fitbitActions'; // Import the server action
 // NOTE: Server-side store updates are tricky without a backend adapter or server actions.
 // For now, we'll focus on the token exchange and assume client-side will react to redirection.
 // import { useUserProfileStore } from '@/store/userProfileStore';
@@ -54,18 +55,25 @@ export async function GET(request: NextRequest) {
         }
 
         const tokenData = await response.json();
-        const { access_token, refresh_token, user_id: fitbitUserId } = tokenData;
+        const { access_token, refresh_token, user_id: fitbitUserId, expires_in } = tokenData;
 
-        // --- Store Tokens/User ID (Server-side Challenge) --- 
-        // Ideally, encrypt and store tokens securely, associated with the app's user.
-        // Updating Zustand store directly from API route isn't straightforward.
-        // We'll store the user_id for now and rely on client-side logic triggered by redirect.
-        console.log("Fitbit connection successful. User ID:", fitbitUserId);
-        console.log("Access Token (snippet):", access_token?.substring(0, 10)); // Don't log full token!
+        // --- Store Tokens using Server Action --- 
+        console.log("Fitbit connection successful. Calling server action to store tokens...");
         
-        // TODO: Securely associate fitbitUserId (and tokens) with the logged-in user.
-        // This might involve a database update or using NextAuth.js session handling.
-        // For demo purposes, we redirect with success and the client can update the store.
+        try {
+            await storeFitbitTokens({
+                accessToken: access_token,
+                refreshToken: refresh_token,
+                fitbitUserId: fitbitUserId,
+                expiresIn: expires_in, // Store expiry time
+            });
+            console.log("Server action storeFitbitTokens completed.");
+        } catch (storeError) {
+            console.error("Failed to store Fitbit tokens via server action:", storeError);
+            // Decide how to handle: still redirect success? Or show specific error?
+            // For now, log error and continue with success redirect.
+             return NextResponse.redirect(new URL('/settings?fitbit=error&reason=token_storage_failed', request.url));
+        }
 
         // --- Redirect on Success --- 
         // Pass fitbitUserId back to client for potential store update

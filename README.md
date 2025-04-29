@@ -24,17 +24,17 @@ This project follows the specifications outlined in [`Technical-Specification-an
 *   **Markdown Rendering:** `unified`, `remark-parse`, `remark-html`
 *   **Integrations:** Fitbit Web API (OAuth 2.0), Google Health Connect / Apple HealthKit, Web NFC API
 *   **Testing:** Jest + React Testing Library (Unit/Component), Cypress (E2E)
-*   **PWA:** `@ducanh2912/next-pwa`
-*   **Other Libraries:** `uuid`, `@dnd-kit/*`, `lucide-react`, `sonner`
+*   **PWA:** `@serwist/next` (using a custom service worker)
+*   **Other Libraries:** `uuid`, `@dnd-kit/*`, `lucide-react`, `sonner` (for toasts)
 
-## 3. Current Status (as of [Date TBD] - Iteration X)
+## 3. Current Status (as of [Date TBD] - Iteration Y)
 
 ### Implemented Features
 
 *   **Project Setup:** Initialized using Next.js App Router (`create-next-app` with `--src-dir`, `--ts`, `--tailwind`, `--eslint`). Core dependencies installed.
 *   **Directory Structure:** Aligned with spec (Section 6), adapted for Next.js App Router conventions.
-*   **Data Types:** Core TypeScript interfaces defined (`src/types/index.ts`), including updated `BodyMetrics` (with `source` field).
-*   **State Management:** Zustand stores created and configured with IndexedDB persistence for `UserProfile`, `Planner`, `Metrics`, `Nutrition`, and `MediaAssets`.
+*   **Data Types:** Core TypeScript interfaces defined (`src/types/index.ts`), including updated `BodyMetrics` (with `source` field) and `FitbitDaily`.
+*   **State Management:** Zustand stores created and configured with IndexedDB persistence for `UserProfile`, `Planner`, `Metrics`, `Nutrition`, `MediaAssets`, and **`Activity` (for daily summaries)**.
 *   **Routing & Layout:** Basic layout (`layout.tsx`), shared components (`<Header />`, `<Sidebar />`, `<Modal />`), pages created for all main routes using App Router.
 *   **UI Components:** Basic reusable components created (`<Button />`, `<Input />`, `<Label />`, `<Select />`, `<SelectOption />`).
 *   **Onboarding:** Multi-step form implemented, saves to store, handles completion state.
@@ -43,44 +43,58 @@ This project follows the specifications outlined in [`Technical-Specification-an
 *   **Core Algorithms:** BMR, TDEE, Calorie/Protein targets implemented and integrated into UI. **TDEE calculation now uses dynamic activity level** from user profile.
 *   **Nutrition:** Meal logging form, macro progress bars (vs calculated targets), and daily meal list with delete functionality.
 *   **Settings:** User profile editing form (including activity level), basic notification permission request UI, **data export functionality** (workouts, nutrition to JSON), placeholders for integrations.
-*   **PWA:** Basic setup configured using `@ducanh2912/next-pwa` and `manifest.json`.
-*   **Fitbit Integration (Initial):** Connect button implemented (redirects for OAuth), API callback route created (exchanges code for token), client-side handling of redirect parameters added to Settings page.
+*   **PWA & Service Worker:**
+    *   PWA configured using `@serwist/next`.
+    *   Custom service worker implemented (`src/app/sw.js`) in JavaScript.
+    *   Includes basic event listeners for `install`, `activate`, `push`, and `notificationclick`.
+    *   `push` handler parses incoming data (JSON or text) and displays a notification using `self.registration.showNotification`.
+    *   `notificationclick` handler closes the notification and attempts to focus or open the relevant window based on `data.url`.
+*   **Fitbit Integration (Partial - Needs Secure Storage):**
+    *   OAuth flow implemented (Connect button, callback handler).
+    *   Server Actions created for token handling (`storeFitbitTokens`, `refreshFitbitToken`, `fetchFitbitData`) **using placeholder in-memory storage and user association**.
+    *   Settings page UI allows connecting, manually syncing (profile & basic activity), and disconnecting Fitbit.
+    *   Synced activity data (steps, calories) saved to `activityStore`.
 *   **Knowledge Base:** Basic page created, displays hardcoded `KnowledgeCard` components.
-*   **Media Library (Initial):** `useMediaStore` created, `MealMediaDisplay` component implemented and integrated into `MealList` to show thumbnails. `ExerciseVideo` component created.
+*   **Media Library (Partial):**
+    *   `useMediaStore` created with placeholder asset data.
+    *   Media selection integrated into `WorkoutModal` and `MealLogForm`.
+    *   `ExerciseVideo` component created and used in `WorkoutModal`.
+    *   Basic `MealGallery` component created (displays meal images in a grid).
+*   **NFC Triggers (Initial - PWA/Android):**
+    *   `useNfcReader` hook created to handle Web NFC API interactions (scan, read, errors).
+    *   Planner page includes button to initiate NFC scan (on supported browsers).
+    *   Scanned `plankyou://workout/` URIs are parsed (action dispatch TBD).
 *   **Guided Tutorials (Initial):** `TutorialModal` component created (renders markdown), NFC Tools tutorial data added, tutorial completion tracked in `userProfileStore`, trigger added to Settings page.
 *   **Testing:** Basic Jest + React Testing Library setup configured, sample unit test created.
-*   **Toast Notifications:** Implemented using `sonner` library; integrated into layout and `WorkoutModal`.
+*   **Toast Notifications:** Implemented using `sonner` library; integrated into layout and key components (`Settings`, etc.).
 
 ### Missing Features / Next Steps (Prioritized)
 
-*   **Fitbit Integration (Full - v1.1 Target):**
-    *   Secure server-side token storage (access & refresh tokens).
-    *   Implement token refresh logic (server-side).
-    *   Implement data synchronization logic (server-side fetch daily activity/sleep from Fitbit API).
-    *   Implement disconnect functionality (revoke token, clear state).
+*   **Notifications (Full Implementation):**
+    *   **Backend Push Service:** Implement a secure backend mechanism for storing push subscriptions (linking them to users) and sending push messages using VAPID keys. (Spec Section 11, 16).
+    *   **Specific Triggers:** Implement the logic to trigger specific notifications based on user settings and app events (e.g., workout reminders 30 min prior, inactivity cues, meeting reminders for balance board - Spec Section 11).
+*   **Fitbit Integration (Finalize - v1.1 Target):**
+    *   **Implement Secure Token Storage:** Replace placeholder server-side storage in `fitbitActions.ts` with a secure method (e.g., database) and implement proper user association (critical for security).
+    *   **Refine Data Sync Logic:** Ensure all desired Fitbit data points (sleep, HR, etc.) are fetched and correctly mapped/stored in relevant Zustand stores (e.g., `activityStore`, `metricsStore`).
+    *   Implement Fitbit token revocation on disconnect.
 *   **Wyze Scale Integration (via Health Connect / HealthKit):**
     *   Implement native modules/plugins (e.g., Capacitor) to access Health Connect (Android) and HealthKit (iOS) - Spec Section 8F.
     *   Request necessary permissions.
     *   Implement logic to read latest weight/body fat data.
-    *   Update `BodyMetrics` store with synced data.
+    *   Update `BodyMetrics` store with synced data (using `source: 'WYZE'`).
     *   Consider PWA CSV import fallback.
-*   **Notifications (Full):**
-    *   Implement Service Worker `push` event handler to display notifications.
-    *   Implement backend mechanism for storing push subscriptions and sending messages (requires VAPID keys).
-    *   Implement specific notification triggers (workout reminders, hydration, posture cues - Spec Section 4.4, 11).
-*   **NFC Triggers (v1.1+):**
-    *   Implement Web NFC scanning logic (Android/Chrome - Spec Section 8B).
-    *   Implement routing based on scanned tag URI.
-    *   Create `NfcTag` store/management UI.
-    *   Implement QR code generation/fallback for iOS (Spec Section 8E).
-*   **Media Library Integration (Full):**
-    *   Load actual media assets (videos, gifs, images) - requires adding assets to `/media/`.
-    *   Integrate `ExerciseVideo` into workout displays/modal.
-    *   Implement media selection UI within `WorkoutModal` and `MealLogForm`.
-    *   Implement `MealGallery` component (Spec Section 4.11).
+*   **NFC Triggers (Finalize):**
+    *   **Implement Action:** Determine and implement the action triggered by scanning a valid `plankyou://workout/` tag (e.g., open workout modal, start timer).
+    *   **Manage Tags:** Create `NfcTag` store/management UI if needed to associate specific tags.
+    *   **iOS Fallback:** Implement QR code generation/scanning as a fallback for iOS (Spec Section 8E).
+*   **Media Library Integration (Finalize):**
+    *   **Load Actual Media:** Add actual exercise/meal media assets to `/public/media/`.
+    *   **Implement Loading Strategy:** Replace hardcoded assets in `mediaStore` with loading from `/public/media/` (or a manifest file).
+    *   **Enhance `MealGallery`:** Implement swipeable carousel UI.
+    *   Integrate `ExerciseVideo` more broadly (e.g., in workout lists/details).
 *   **Settings Implementation (Full):** Implement UI/logic for granular Notification Preferences (Spec Section 11).
 *   **Testing:** Write comprehensive unit, component, and E2E tests for all major features (Spec Section 13).
-*   **Styling & UX Refinements:** Apply consistent styling, improve accessibility (WCAG), add PWA icons, implement better loading/empty states. Further refinement of toast notification styling/placement may be needed (Spec Section 12).
+*   **Styling & UX Refinements:** Apply consistent styling, improve accessibility (WCAG), add PWA icons, implement better loading/empty states.
 *   **CI/CD:** Finalize GitHub Actions workflow for automated testing and deployment (Spec Section 14).
 *   **Knowledge Base (Full):** Implement dynamic data loading, filtering/search functionality.
 *   **AI Plan Regeneration (v2.0):** Integrate with OpenAI API (or similar) for dynamic plan adjustments based on progress/feedback (Spec Section 17).
@@ -97,8 +111,8 @@ This project follows the specifications outlined in [`Technical-Specification-an
     pnpm install
     ```
 3.  **Environment Variables:**
-    Create a `.env.local` file in the root directory for **client-side** variables. Add `NEXT_PUBLIC_APP_NAME`. For Fitbit integration, add `NEXT_PUBLIC_FITBIT_CLIENT_ID` and `NEXT_PUBLIC_FITBIT_REDIRECT_URI`.
-    Create a `.env` file (or use environment variables in your deployment environment) for **server-side** secrets. Add `FITBIT_CLIENT_SECRET`. For push notifications (later), add `NEXT_PUBLIC_VAPID_PUBLIC_KEY` (client-side) and `VAPID_PRIVATE_KEY` (server-side).
+    Create a `.env.local` file in the root directory for **client-side** variables. Add `NEXT_PUBLIC_APP_NAME`. For Fitbit integration, add `NEXT_PUBLIC_FITBIT_CLIENT_ID` and `NEXT_PUBLIC_FITBIT_REDIRECT_URI`. For push notifications, add `NEXT_PUBLIC_VAPID_PUBLIC_KEY` (generate using `npx web-push generate-vapid-keys`).
+    Create a `.env` file (or use environment variables in your deployment environment) for **server-side** secrets. Add `FITBIT_CLIENT_SECRET`. For push notifications, add `VAPID_PRIVATE_KEY` (from the command above).
     **Never commit `FITBIT_CLIENT_SECRET` or `VAPID_PRIVATE_KEY` to your repository.**
 4.  **Run the development server:**
     ```bash

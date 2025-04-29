@@ -3,9 +3,10 @@
 export interface BodyMetrics {
   date: string; // ISO 8601 format (e.g., "2025-04-28T10:00:00Z")
   weightKg: number;
-  bodyFatPct: number;
+  bodyFatPct?: number; // Optional based on scale/source capabilities
   muscleMassKg?: number; // Optional based on scale capabilities
   visceralRating?: number; // Optional based on scale capabilities
+  source: 'MANUAL' | 'WYZE' | 'FITBIT'; // Added based on Spec 8F/7
 }
 
 export type WorkoutType = 'CLIMB' | 'SWIM' | 'CORE' | 'STRENGTH' | 'REST' | 'MOBILITY';

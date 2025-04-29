@@ -1,13 +1,16 @@
 "use client";
 
-import React from 'react';
-import { useForm, SubmitHandler } from 'react-hook-form';
+import React, { useState, useEffect } from 'react';
+import { useForm, SubmitHandler, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useNutritionStore } from '@/store/nutritionStore';
-import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Label } from '@/components/ui/Label';
+import { useMediaStore } from '@/store/mediaStore';
+import type { MediaAsset } from '@/types';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectOption } from '@/components/ui/select';
 
 // Schema based on Meal type (excluding id, timestamp)
 const mealSchema = z.object({
@@ -16,6 +19,7 @@ const mealSchema = z.object({
     carbsG: z.number({ invalid_type_error: 'Carbs must be a number'}).nonnegative('Carbs cannot be negative').int(),
     fatG: z.number({ invalid_type_error: 'Fat must be a number'}).nonnegative('Fat cannot be negative').int(),
     lactoseFree: z.boolean(),
+    mediaId: z.string().optional(),
     // description: z.string().optional(), // Optional text description
 });
 
@@ -23,10 +27,18 @@ type MealFormData = z.infer<typeof mealSchema>;
 
 const MealLogForm: React.FC = () => {
     const addMeal = useNutritionStore((state) => state.addMeal);
+    const { findAssetsByTag, getAssetById } = useMediaStore((state) => ({
+        findAssetsByTag: state.findAssetsByTag,
+        getAssetById: state.getAssetById,
+    }));
+    const [mealMediaAssets, setMealMediaAssets] = useState<MediaAsset[]>([]);
+
     const {
         register,
         handleSubmit,
         reset,
+        control,
+        watch,
         formState: { errors, isSubmitting },
     } = useForm<MealFormData>({
         resolver: zodResolver(mealSchema),
@@ -36,13 +48,26 @@ const MealLogForm: React.FC = () => {
             carbsG: 0,
             fatG: 0,
             lactoseFree: false,
+            mediaId: '',
         },
     });
 
+    useEffect(() => {
+        const assets = findAssetsByTag('meal');
+        setMealMediaAssets(assets);
+    }, [findAssetsByTag]);
+
+    const selectedMediaId = watch('mediaId');
+    const selectedAsset = selectedMediaId ? getAssetById(selectedMediaId) : null;
+
     const onSubmit: SubmitHandler<MealFormData> = (data) => {
         try {
-            addMeal(data); // Store handles id and timestamp
-            reset(); // Clear form after successful submission
+            const mealDataForStore = {
+                ...data,
+                mediaIds: data.mediaId ? [data.mediaId] : [],
+            };
+            addMeal(mealDataForStore);
+            reset();
         } catch (error) {
             console.error("Failed to log meal:", error);
             // TODO: User-facing error message
@@ -73,6 +98,38 @@ const MealLogForm: React.FC = () => {
                     <Input id="fatG" type="number" {...register('fatG', { valueAsNumber: true })} disabled={isSubmitting} />
                     {errors.fatG && <p className="text-red-500 text-sm mt-1">{errors.fatG.message}</p>}
                 </div>
+
+                 {mealMediaAssets.length > 0 && (
+                    <div className="col-span-2">
+                        <Label htmlFor="mediaId">Related Image (Optional)</Label>
+                        <Controller
+                            name="mediaId"
+                            control={control}
+                            render={({ field }) => (
+                                <Select
+                                    id="mediaId"
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                    onBlur={field.onBlur}
+                                    ref={field.ref}
+                                    disabled={isSubmitting}
+                                >
+                                    <SelectOption value="">None</SelectOption>
+                                    {mealMediaAssets.map(asset => (
+                                        <SelectOption key={asset.id} value={asset.id}>
+                                            {asset.description || asset.id}
+                                        </SelectOption>
+                                    ))}
+                                </Select>
+                            )}
+                        />
+                        {selectedAsset && (
+                            <div className="mt-2 border rounded overflow-hidden relative w-full aspect-video max-w-xs">
+                                 <img src={selectedAsset.url} alt={selectedAsset.description || 'Selected meal image'} className="object-contain w-full h-full" />
+                             </div>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Options & Submit */}
