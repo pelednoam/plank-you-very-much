@@ -25,7 +25,7 @@ export interface Workout {
   // Fields for logging actual performance
   actualDurationMin?: number;
   performanceNotes?: string; // Post-workout notes, feedback
-  rating?: number; // e.g., RPE (1-10) or satisfaction (1-5)
+  performanceRating?: number; // e.g., RPE (1-10) or satisfaction (1-5)
   // Add more specific fields as needed (e.g., sets, reps, weight for STRENGTH)
   // distanceKm?: number; // for SWIM
   // avgPace?: string; // for SWIM

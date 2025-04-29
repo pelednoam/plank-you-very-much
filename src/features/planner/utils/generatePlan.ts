@@ -1,82 +1,74 @@
 import dayjs from 'dayjs';
-import type { WeeklyPlan, PlannedDay, PlannerSettings } from '@/features/planner/types';
-import type { Workout } from '@/types';
+import { v4 as uuidv4 } from 'uuid';
+import type { WorkoutType } from '@/types'; // Assuming WorkoutType is defined in types/index.ts
+import type { Workout, UserProfile } from '@/types'; // Import UserProfile
 
-const REQUIRED_WORKOUTS: Workout['type'][] = ['CLIMB', 'CLIMB', 'SWIM', 'SWIM', 'CORE', 'CORE'];
-const MAX_REST_DAYS = 1;
-const WEEK_LENGTH = 7;
+// Function to shuffle an array (Fisher-Yates)
+function shuffleArray<T>(array: T[]): T[] {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+}
 
-/**
- * Generates a basic weekly workout plan based on predefined rules.
- *
- * Rules:
- * - >= 2 CLIMB
- * - >= 2 SWIM
- * - >= 2 CORE
- * - <= 1 REST
- * - Total 7 days
- *
- * @param startDate - The start date of the week (YYYY-MM-DD), typically a Monday.
- * @param settings - Optional planner settings (currently unused but planned for future flexibility).
- * @returns A WeeklyPlan object.
- */
-export function generateWeeklyPlan(
-    startDate: string,
-    settings?: PlannerSettings
-): WeeklyPlan {
+// Define a basic weekly schedule template
+// Spec: ≥2 climb, ≥2 swim, ≥2 core, ≤1 rest
+// Default: 2 Climb, 2 Swim, 2 Core, 1 Rest = 7 days
+const defaultWeeklyTemplate: WorkoutType[] = ['CLIMB', 'SWIM', 'CORE', 'CLIMB', 'SWIM', 'CORE', 'REST'];
+// Add a mobility workout type if not already present in WorkoutType
+// Assuming WorkoutType might be: 'CLIMB' | 'SWIM' | 'CORE' | 'STRENGTH' | 'REST' | 'MOBILITY';
+const backCareTemplate: WorkoutType[] = ['CLIMB', 'SWIM', 'MOBILITY', 'CLIMB', 'SWIM', 'CORE', 'REST']; // Replace one CORE with MOBILITY
+
+// Generate a weekly plan starting from a given Monday
+// Now accepts optional user profile data
+export const generateWeeklyPlan = (
+    startDate: string, // Should be 'YYYY-MM-DD' format of a Monday
+    userProfile?: UserProfile | null // Optional user profile
+): { startDate: string; endDate: string; workouts: Workout[] } => {
     const start = dayjs(startDate);
-    const days: PlannedDay[] = [];
-    const workoutsToSchedule = [...REQUIRED_WORKOUTS];
+    const endDate = start.add(6, 'days').format('YYYY-MM-DD');
+    const workouts: Workout[] = [];
 
-    // Simple shuffling strategy for initial placement
-    // (More sophisticated logic needed for constraints, preferences, back pain flags etc.)
-    workoutsToSchedule.sort(() => Math.random() - 0.5);
+    // Determine which template to use
+    const templateToUse = userProfile?.backIssues ? backCareTemplate : defaultWeeklyTemplate;
 
-    let restDaysPlaced = 0;
+    // Shuffle the chosen template for variety
+    const shuffledTypes = shuffleArray([...templateToUse]);
 
-    for (let i = 0; i < WEEK_LENGTH; i++) {
+    // Create workout objects for each day
+    for (let i = 0; i < 7; i++) {
         const currentDate = start.add(i, 'day').format('YYYY-MM-DD');
-        let workout: Workout | null = null;
+        const workoutType = shuffledTypes[i];
 
-        // Prioritize placing required workouts
-        if (workoutsToSchedule.length > 0) {
-            const workoutType = workoutsToSchedule.pop()!;
-            // Create a placeholder workout object
-            workout = {
-                id: `${workoutType}-${currentDate}-${Math.random().toString(36).substring(2, 9)}`,
-                type: workoutType,
-                plannedAt: currentDate,
-                durationMin: workoutType === 'CLIMB' ? 90 : (workoutType === 'SWIM' ? 45 : 30), // Example durations
-            };
-        } else if (restDaysPlaced < MAX_REST_DAYS) {
-            // Place rest day if required workouts are done and rest days are available
-            workout = null; // Explicitly null for rest
-            restDaysPlaced++;
-        } else {
-            // This case should ideally not happen if rules are consistent
-            // Fallback: add another CORE workout? Or handle error?
-            console.warn("Ran out of workouts and rest days unexpectedly.");
-            // For now, just add a default CORE workout to fill the week
-             workout = {
-                id: `CORE-${currentDate}-fallback-${Math.random().toString(36).substring(2, 9)}`,
-                type: 'CORE',
-                plannedAt: currentDate,
-                durationMin: 30,
-            };
+        // Assign basic properties - duration can be refined later based on type/goals
+        let durationMin = 0;
+        switch(workoutType) {
+            case 'CLIMB': durationMin = 90; break;
+            case 'SWIM': durationMin = 45; break;
+            case 'CORE': durationMin = 30; break;
+            case 'STRENGTH': durationMin = 60; break;
+            case 'MOBILITY': durationMin = 20; break; // Added duration for mobility
+            case 'REST': durationMin = 0; break;
+            default: durationMin = 30; // Default duration
         }
 
-        days.push({
-            date: currentDate,
-            workout: workout,
-        });
+        const workout: Workout = {
+            id: uuidv4(),
+            type: workoutType,
+            plannedAt: currentDate, // Assign to the specific day
+            durationMin: durationMin,
+            completedAt: undefined, // Mark as not completed initially
+            notes: undefined,
+            performanceRating: undefined,
+            // mediaIds: undefined // Placeholder for future media integration
+        };
+        workouts.push(workout);
     }
 
-    // Ensure the final plan distribution meets minimums (or log error if generation failed)
-    // TODO: Add validation logic here if needed
-
     return {
-        startDate: start.format('YYYY-MM-DD'),
-        endDate: start.add(6, 'day').format('YYYY-MM-DD'),
-        days: days,
+        startDate,
+        endDate,
+        workouts,
     };
-} 
+}; 

@@ -91,7 +91,7 @@ export function calculateCalorieTarget(
   
   // Use goalDeficit if both target % and date are set and valid
   const useGoalDeficit = 
-      targetBodyFatPct !== undefined && targetBodyFatPct > 0 &&
+      targetBodyFatPct !== undefined && targetBodyFatPct >= 0 && // Allow 0% as valid target indication
       targetDate !== undefined && dayjs(targetDate).isValid() && dayjs(targetDate).isAfter(dayjs());
 
   const calorieDeficit = useGoalDeficit ? goalDeficit : baseDeficit; 

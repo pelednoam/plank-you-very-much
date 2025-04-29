@@ -2,10 +2,10 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import Header from './Header';
-import { useTheme } from '../store/themeStore'; // Mock this hook
+import { useTheme } from '@/store/themeStore'; // Corrected path with alias
 
 // Mock the useTheme hook
-jest.mock('../store/themeStore', () => ({
+jest.mock('@/store/themeStore', () => ({ // Corrected path with alias
   useTheme: jest.fn(),
 }));
 
