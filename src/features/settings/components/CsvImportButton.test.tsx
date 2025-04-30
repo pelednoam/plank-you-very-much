@@ -7,16 +7,23 @@ import type { BodyMetrics } from '@/types';
 
 // --- Mock Store --- 
 // Keep track of the mock function outside the mock definition
-const mockImportMetricsFn = jest.fn(() => ({ added: 0, duplicates: 0 }));
+const mockImportMetricsFn = jest.fn();
 
+// Mock the entire store state/actions returned by the hook selector
 jest.mock('@/store/metricsStore', () => ({
-  useMetricsStore: jest.fn(() => ({
-    importMetrics: mockImportMetricsFn, // Use the tracked mock function
-  })),
+  useMetricsStore: jest.fn((selector) => {
+    // The state object that the selector operates on
+    const mockState = {
+        metrics: [], // Add other state properties if needed by component/selector
+        importMetrics: mockImportMetricsFn, 
+        // Add other actions if needed
+    };
+    // Execute the selector passed to the hook against the mock state
+    return selector(mockState);
+  }),
 }));
-// --- End Mock Store --- 
 
-// Mock sonner toast
+// --- Mock Sonner --- 
 jest.mock('sonner', () => ({
   toast: {
     success: jest.fn(),
@@ -25,18 +32,37 @@ jest.mock('sonner', () => ({
   },
 }));
 
-// Mock FileReader
-const mockFileReader = {
-  readAsText: jest.fn(),
-  onload: jest.fn() as jest.Mock<void, [ProgressEvent<FileReader>]>,
-  onerror: jest.fn() as jest.Mock<void, [ProgressEvent<FileReader>]>,
-  result: '' as string | ArrayBuffer | null
-};
+// --- Simplified FileReader Mock --- 
+// Store captured handlers globally within the test file scope
+let capturedOnload: ((ev: ProgressEvent<FileReader>) => any) | null = null;
+let capturedOnerror: ((ev: ProgressEvent<FileReader>) => any) | null = null;
+const mockReadAsText = jest.fn();
 
-const mockFileReaderConstructor = jest.fn(() => mockFileReader);
+const mockFileReaderConstructor = jest.fn().mockImplementation(() => {
+  // The mock instance only needs readAsText and allows setting handlers
+  const mockInstance = {
+    readAsText: mockReadAsText,
+    // Event handlers are assignable
+    set onload(handler: ((ev: ProgressEvent<FileReader>) => any) | null) {
+      capturedOnload = handler;
+    },
+    get onload() {
+        return capturedOnload;
+    },
+    set onerror(handler: ((ev: ProgressEvent<FileReader>) => any) | null) {
+      capturedOnerror = handler;
+    },
+     get onerror() {
+        return capturedOnerror;
+    },
+    // Add other properties if component logic checks them (e.g., readyState), otherwise minimal is fine
+    readyState: 0,
+    result: null, 
+  };
+  return mockInstance;
+});
 
 beforeAll(() => {
-  // Assign the mock constructor to the global FileReader
   Object.defineProperty(window, 'FileReader', {
     writable: true,
     value: mockFileReaderConstructor,
@@ -44,37 +70,31 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  // Reset mocks before each test
-  // Reset the store mock function's implementation/calls
-  mockImportMetricsFn.mockClear().mockImplementation(() => ({ added: 0, duplicates: 0 }));
-  // Reset other mocks (toast, FileReader)
+  // Reset mocks
+  // Reset the store mock implementation for each test
+  mockImportMetricsFn.mockClear().mockImplementation(() => ({ added: 0, duplicates: 0 })); 
+  // Also reset the main hook mock itself if needed, although maybe not necessary here
+  // (useMetricsStore as jest.Mock).mockClear(); 
   (toast.success as jest.Mock).mockClear();
   (toast.error as jest.Mock).mockClear();
   (toast.warning as jest.Mock).mockClear();
-  mockFileReader.readAsText.mockClear();
-  mockFileReader.onload.mockClear();
-  mockFileReader.onerror.mockClear();
-  mockFileReader.result = '';
   mockFileReaderConstructor.mockClear();
+  mockReadAsText.mockClear();
+  capturedOnload = null;
+  capturedOnerror = null;
 });
+// --- End Simplified FileReader Mock --- 
 
 describe('CsvImportButton', () => {
-
-  beforeEach(() => {
-      // Reset the specific mock function for importMetrics before each test in this suite
-      mockImportMetricsFn.mockClear().mockImplementation(() => ({ added: 2, duplicates: 1 }));
-  });
 
   test('renders button with correct text and icon', () => {
     render(<CsvImportButton source="WYZE" />);
     expect(screen.getByRole('button', { name: /Import WYZE CSV/i })).toBeInTheDocument();
   });
   
-  // Add data-testid to the Input component in CsvImportButton.tsx for this test
   test('clicking button triggers hidden file input', () => {
       render(<CsvImportButton source="WYZE" />);
       const button = screen.getByRole('button');
-      // Assuming the Input has data-testid="csv-file-input"
       const fileInput = screen.getByTestId('csv-file-input'); 
       const inputClickMock = jest.fn();
       fileInput.click = inputClickMock;
@@ -95,32 +115,38 @@ describe('CsvImportButton', () => {
     // Simulate file selection
     fireEvent.change(fileInput, { target: { files: [file] } });
 
-    // Check that FileReader was used
+    // Check that FileReader was instantiated and readAsText called
     expect(mockFileReaderConstructor).toHaveBeenCalledTimes(1);
-    expect(mockFileReader.readAsText).toHaveBeenCalledWith(file, undefined);
+    // Expect readAsText to be called with the file and UNDEFINED encoding (default)
+    expect(mockReadAsText).toHaveBeenCalledWith(file, undefined);
 
-    // Simulate FileReader onload event
-    mockFileReader.result = mockCsvContent;
-    // We need to wrap the onload call in act because it triggers state updates (isImporting)
-    await act(async () => {
-         // Directly call the assigned onload function with a mock event
-        const mockEvent = { target: { result: mockCsvContent } } as ProgressEvent<FileReader>;
-        mockFileReader.onload(mockEvent);
-         // Allow promises to resolve (e.g., importMetrics potentially being async)
-         await Promise.resolve(); 
-    });
+    // Ensure the component assigned an onload handler
+    expect(capturedOnload).toBeInstanceOf(Function);
+
+    // Simulate FileReader onload event by calling the captured handler
+    if (capturedOnload) {
+        await act(async () => {
+            const mockEvent = { 
+                target: { result: mockCsvContent } 
+            } as unknown as ProgressEvent<FileReader>; 
+            capturedOnload!(mockEvent); // Use non-null assertion
+            await Promise.resolve(); 
+        });
+    } else {
+        throw new Error("FileReader onload handler was not captured");
+    }
 
     // Check that importMetrics was called with parsed data
     const expectedMetrics: BodyMetrics[] = [
       {
-        date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/), // ISO format check
+        date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/),
         weightKg: 80,
         bodyFatPct: 15,
         muscleMassKg: 65,
         source: 'WYZE',
       },
       {
-        date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/), // ISO format check
+        date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/),
         weightKg: 79.5,
         bodyFatPct: 14.8,
         muscleMassKg: 64.8,
@@ -131,7 +157,7 @@ describe('CsvImportButton', () => {
     expect(mockImportMetricsFn).toHaveBeenCalledWith(expect.arrayContaining(expectedMetrics.map(m => expect.objectContaining(m))));
 
     // Check success toast
-    expect(toast.success).toHaveBeenCalledWith("Import Complete", expect.any(Object));
+    expect(toast.success).toHaveBeenCalledWith("Import Complete", expect.objectContaining({ description: expect.stringContaining('2 metrics added') }));
     expect(toast.error).not.toHaveBeenCalled();
 
     // Check button state reset
@@ -145,11 +171,20 @@ describe('CsvImportButton', () => {
 
     fireEvent.change(fileInput, { target: { files: [file] } });
 
+    expect(mockFileReaderConstructor).toHaveBeenCalledTimes(1);
+    expect(mockReadAsText).toHaveBeenCalledTimes(1);
+    expect(capturedOnerror).toBeInstanceOf(Function);
+
     // Simulate FileReader onerror event
-    await act(async () => {
-        const mockEvent = { } as ProgressEvent<FileReader>; // Event content might not matter here
-        mockFileReader.onerror(mockEvent);
-    });
+    if (capturedOnerror) {
+        await act(async () => {
+            const mockEvent = {} as ProgressEvent<FileReader>; 
+            capturedOnerror!(mockEvent); // Use non-null assertion
+            await Promise.resolve();
+        });
+    } else {
+        throw new Error("FileReader onerror handler was not captured");
+    }
 
     expect(mockImportMetricsFn).not.toHaveBeenCalled();
     expect(toast.error).toHaveBeenCalledWith("Import Error", { description: "Failed to read file." });
@@ -166,10 +201,17 @@ describe('CsvImportButton', () => {
 
       fireEvent.change(fileInput, { target: { files: [file] } });
 
-      await act(async () => {
-          const mockEvent = { target: { result: mockCsvContent } } as ProgressEvent<FileReader>;
-          mockFileReader.onload(mockEvent);
-      });
+      expect(mockFileReaderConstructor).toHaveBeenCalledTimes(1);
+      expect(capturedOnload).toBeInstanceOf(Function);
+
+      if (capturedOnload) {
+          await act(async () => {
+              const mockEvent = { target: { result: mockCsvContent } } as unknown as ProgressEvent<FileReader>;
+              capturedOnload!(mockEvent); // Use non-null assertion
+          });
+      } else {
+           throw new Error("FileReader onload handler was not captured");
+      }
 
       expect(mockImportMetricsFn).not.toHaveBeenCalled();
       expect(toast.error).toHaveBeenCalledWith("Import Error", { description: "CSV header missing required columns: 'date', 'weight'." });
@@ -186,70 +228,84 @@ invalid-date,80,15
       const file = new File([mockCsvContent], 'no_valid_rows.csv', { type: 'text/csv' });
 
       fireEvent.change(fileInput, { target: { files: [file] } });
+      
+      expect(mockFileReaderConstructor).toHaveBeenCalledTimes(1);
+      expect(capturedOnload).toBeInstanceOf(Function);
 
-      await act(async () => {
-          const mockEvent = { target: { result: mockCsvContent } } as ProgressEvent<FileReader>;
-          mockFileReader.onload(mockEvent);
-      });
+       if (capturedOnload) {
+          await act(async () => {
+              const mockEvent = { target: { result: mockCsvContent } } as unknown as ProgressEvent<FileReader>;
+              capturedOnload!(mockEvent); // Use non-null assertion
+          });
+       } else {
+           throw new Error("FileReader onload handler was not captured");
+       }
 
       expect(mockImportMetricsFn).not.toHaveBeenCalled();
       expect(toast.warning).toHaveBeenCalledWith("Import Finished", { description: "No valid metrics found to import. 2 rows skipped due to errors." });
       expect(screen.getByRole('button', { name: /Import WYZE CSV/i })).not.toBeDisabled();
   });
 
-  test('shows importing state on button while processing', () => {
-    render(<CsvImportButton source="WYZE" />);
-    const fileInput = screen.getByTestId('csv-file-input');
-    const file = new File(['date,weight\n2024-01-01,80'], 'test.csv', { type: 'text/csv' });
+  test('shows importing state on button while processing', async () => {
+      render(<CsvImportButton source="WYZE" />);
+      const fileInput = screen.getByTestId('csv-file-input');
+      const file = new File(['date,weight\n2024-01-01,80'], 'test.csv', { type: 'text/csv' });
 
-    // Initial state
-    expect(screen.getByRole('button', { name: /Import WYZE CSV/i })).toBeInTheDocument();
+      // Start the process - use act because state updates immediately
+       await act(async () => {
+         fireEvent.change(fileInput, { target: { files: [file] } });
+       });
+       
+      // Button should be disabled *after* the initial state update in act
+      expect(screen.getByRole('button', { name: /Importing.../i })).toBeDisabled();
+       
+       // Simulate completion
+       if (capturedOnload) {
+           await act(async () => {
+               const mockEvent = { target: { result: 'date,weight\n2024-01-01,80' } } as unknown as ProgressEvent<FileReader>;
+               capturedOnload!(mockEvent); // Use non-null assertion
+               await Promise.resolve(); 
+           });
+       } else {
+            throw new Error("FileReader onload handler was not captured");
+       }
 
-    // Trigger file change - should set isImporting
-    fireEvent.change(fileInput, { target: { files: [file] } });
-    
-    // Check button text/state WHILE importing (before onload fires)
-    expect(screen.getByRole('button', { name: /Importing.../i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Importing.../i })).toBeDisabled();
-
-    // (Simulating onload happens in other tests which also check the final state)
+       // Expect button to be enabled again
+       expect(screen.getByRole('button', { name: /Import WYZE CSV/i })).not.toBeDisabled();
   });
-
-  // Add test for missing optional columns (fat%, muscle%)
+  
   test('handles CSV with missing optional columns (bodyFatPct, muscleMassKg)', async () => {
-    render(<CsvImportButton source="WYZE" />);
+    render(<CsvImportButton source="FITBIT" />);
     const fileInput = screen.getByTestId('csv-file-input');
     const mockCsvContent = 
 `date,weight
 2024-07-30,80
 2024-07-31,79.5`
-    const file = new File([mockCsvContent], 'wyze_basic.csv', { type: 'text/csv' });
+    const file = new File([mockCsvContent], 'fitbit_data.csv', { type: 'text/csv' });
 
     fireEvent.change(fileInput, { target: { files: [file] } });
 
-    await act(async () => {
-        const mockEvent = { target: { result: mockCsvContent } } as ProgressEvent<FileReader>;
-        mockFileReader.onload(mockEvent);
-    });
+    expect(mockFileReaderConstructor).toHaveBeenCalledTimes(1);
+    expect(capturedOnload).toBeInstanceOf(Function);
 
-    const expectedMetrics: BodyMetrics[] = [
-      {
-        date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/),
-        weightKg: 80,
-        bodyFatPct: undefined,
-        muscleMassKg: undefined,
-        source: 'WYZE',
-      },
-      {
-        date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/),
-        weightKg: 79.5,
-        bodyFatPct: undefined,
-        muscleMassKg: undefined,
-        source: 'WYZE',
-      },
+     if (capturedOnload) {
+        await act(async () => {
+            const mockEvent = { target: { result: mockCsvContent } } as unknown as ProgressEvent<FileReader>;
+            capturedOnload!(mockEvent); // Use non-null assertion
+            await Promise.resolve();
+        });
+    } else {
+         throw new Error("FileReader onload handler was not captured");
+    }
+
+    const expectedMetrics: Partial<BodyMetrics>[] = [
+      { weightKg: 80, source: 'FITBIT' },
+      { weightKg: 79.5, source: 'FITBIT' },
     ];
+    expect(mockImportMetricsFn).toHaveBeenCalledTimes(1);
     expect(mockImportMetricsFn).toHaveBeenCalledWith(expect.arrayContaining(expectedMetrics.map(m => expect.objectContaining(m))));
-    expect(toast.success).toHaveBeenCalled();
+    expect(toast.success).toHaveBeenCalledWith("Import Complete", expect.objectContaining({ description: expect.stringContaining('2 metrics added')}));
+    expect(screen.getByRole('button', { name: /Import FITBIT CSV/i })).not.toBeDisabled();
   });
 
 }); 

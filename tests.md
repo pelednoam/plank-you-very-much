@@ -81,14 +81,17 @@ These tests verify individual functions, components, or modules in isolation.
 
 ### Components (`src/components`, `src/features/*/components`)
 
-*   **Status:** ⚠️ Blocked / ➖ Missing
-*   **Description:** Component-level tests using React Testing Library are currently **blocked** by a Jest configuration issue (`SyntaxError: Cannot use import statement outside a module` for `next-auth/react`). One test file exists (`AuthButtons.test.tsx`) but cannot be run.
-    *   **Key Missing Examples:** `<UserProfileForm />`, `<GoalSettingsForm />`, `<WorkoutDetailsModal />`, `<Dashboard />`, `<MetricCards />`, `<Planner />`, `<NutritionLog />`, `<IntegrationSettings />`, `<NotificationSettings />`, `<CsvImportButton />`, `<ExerciseVideo />`, `<MealGallery />`.
+*   **Status:** ➖ Missing (Partial - 1 Added) / ✅ Passing
+*   **Description:** The Jest configuration issue (`SyntaxError: Cannot use import statement outside a module` for `next-auth/react`) has been resolved by **mocking** the `next-auth/react` module (`src/__mocks__/next-auth/react.js`). Component testing is now unblocked.
+    *   **`src/features/settings/components/GoalSettingsForm.test.tsx`** ✅ Passing - Tests form rendering, input changes, validation, and submission using mocked store.
+    *   **`src/features/settings/components/UserProfileForm.test.tsx`** ✅ Passing - Tests rendering with initial values, input changes (text, number, checkbox, select), validation (positive height, DOB not future), form submission, and disabled state. Mocks store, `sonner`, and `scrollIntoView`.
+    *   **`src/features/settings/components/PreferenceToggles.test.tsx`** ✅ Passing - Tests rendering toggles based on store state, toggling preferences on/off (calling store action), handling null/missing profile/prefs, and showing toasts. Mocks store and `sonner`.
+    *   **Key Missing Examples:** `<WorkoutDetailsModal />`, `<Dashboard />`, `<MetricCards />`, `<Planner />`, `<NutritionLog />`, `<IntegrationSettings />`, `<NotificationSettings />`, `<CsvImportButton />`, `<ExerciseVideo />`, `<MealGallery />`.
 
 ### Auth Components (`src/components/auth`)
 
 *   **`src/components/auth/AuthButtons.test.tsx`**
-    *   **Status:** ⚠️ Blocked (Jest Config Issue)
+    *   **Status:** ✅ Passing
     *   **Description:** Tests conditional rendering based on authentication session state (`loading`, `unauthenticated`, `authenticated`) using mocked `useSession` and child components.
 *   **`src/components/auth/SignInButton.tsx`**
     *   **Status:** ➖ Missing

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, Suspense, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation'; // Import useSearchParams and useRouter
+import dynamic from 'next/dynamic'; // Import next/dynamic
 import UserProfileForm from '@/features/settings/components/UserProfileForm';
 import FitbitConnectButton from '@/features/settings/components/FitbitConnectButton';
 import { Button } from '@/components/ui/button'; // Corrected casing
@@ -9,7 +10,6 @@ import { exportWorkoutData, exportNutritionData, exportMetricsData } from '@/lib
 import { useUserProfileStore, selectNotificationPreferences, defaultProfile, selectFitbitConnection, type UserProfileState } from '@/store/userProfileStore'; // Import store, specific selector, AND defaultProfile
 import { useMetricsStore } from '@/store/metricsStore'; // Import metrics store
 import { useActivityStore } from '@/store/activityStore'; // Import the new activity store
-import { TutorialModal } from '@/features/tutorials/components/TutorialModal'; // Import TutorialModal
 import { nfcToolsTutorial } from '@/features/tutorials/data/nfc-tools'; // Import tutorial data
 import { fetchFitbitData, revokeFitbitToken, syncFitbitDataForDate } from '@/lib/fitbitActions'; // Import server action and sync action
 import { toast } from 'sonner'; // Import toast
@@ -22,6 +22,15 @@ import GoalSettingsForm from '@/features/settings/components/GoalSettingsForm'; 
 import dayjs from 'dayjs';
 import { Checkbox } from '@/components/ui/checkbox';
 import { triggerWorkoutReminders } from '@/lib/notificationActions'; // Import the trigger action
+
+// Dynamically import TutorialModal only on the client-side
+const TutorialModal = dynamic(() => 
+    import('@/features/tutorials/components/TutorialModal').then(mod => mod.TutorialModal),
+    { 
+        ssr: false, // Don't render on server
+        loading: () => <p>Loading tutorial...</p> // Optional loading state
+    }
+);
 
 // Placeholder components for other sections
 const NotificationSettings = () => {
