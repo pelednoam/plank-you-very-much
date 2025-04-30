@@ -3,6 +3,7 @@
 import React from 'react';
 import { useMetricsStore } from '@/store/metricsStore';
 import { useActivityStore } from '@/store/activityStore'; // Import activity store
+import { useUserProfileStore } from '@/store/userProfileStore'; // Import user profile store
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TrendingUp, Scale, Percent, Footprints, BedDouble } from 'lucide-react'; // Add icons
 import dayjs from 'dayjs';
@@ -22,8 +23,10 @@ const MetricCards: React.FC = () => {
     const todayActivity = useActivityStore((state) => state.getActivityForDate(todayStr));
     const todaySteps = todayActivity?.steps;
     const todaySleep = todayActivity?.sleepMinutes;
-    const todayCaloriesOut = todayActivity?.caloriesOut;
     const activityDate = todayActivity?.date ? 'Today' : 'No data'; // Simple label for today
+
+    // Get user profile data for synced calories
+    const lastSyncedCaloriesOut = useUserProfileStore((state) => state.profile?.lastSyncedCaloriesOut);
 
     return (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -83,15 +86,17 @@ const MetricCards: React.FC = () => {
                 </CardContent>
             </Card>
 
-             {/* Optional: Calories Out Card (Fitbit) */}
+             {/* Calories Out Card (from Profile Sync) */}
              <Card>
                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                     <CardTitle className="text-sm font-medium">Calories Burned (Today)</CardTitle>
+                     <CardTitle className="text-sm font-medium">Synced Calories Out</CardTitle>
                      <TrendingUp className="h-4 w-4 text-muted-foreground" />
                  </CardHeader>
                  <CardContent>
                      <div className="text-2xl font-bold">
-                         {todayCaloriesOut !== undefined ? todayCaloriesOut.toLocaleString() : '-'}
+                         {lastSyncedCaloriesOut !== undefined && lastSyncedCaloriesOut > 0
+                             ? `${lastSyncedCaloriesOut.toLocaleString()} kcal`
+                             : '-'}
                      </div>
                      <p className="text-xs text-muted-foreground">{activityDate}</p>
                  </CardContent>

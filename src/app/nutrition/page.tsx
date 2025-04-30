@@ -7,6 +7,7 @@ import { useNutritionStore } from '@/store/nutritionStore';
 import MealLogForm from '@/features/nutrition/components/MealLogForm';
 import MealList from '@/features/nutrition/components/MealList';
 import MacroProgress from '@/features/nutrition/components/MacroProgress';
+import MealGallery from '@/features/media/components/MealGallery'; // Import MealGallery
 import { calculateCalorieTarget, calculateProteinTarget } from '@/lib/calculationUtils'; // Import calc functions
 import dayjs from 'dayjs';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -62,6 +63,11 @@ export default function NutritionPage() {
         return Math.round((remainingCalories * 0.5) / 9);
     }, [calorieTarget, proteinTarget]);
 
+    // --- Sample Meal Media IDs for Gallery --- 
+    // In a real app, these might be fetched based on user goals, preferences, or recent logs
+    const sampleMealMediaIds = ['meal-img-1', 'meal-img-2', 'meal-vid-1']; 
+    // --- End Sample Data --- 
+
     // Delete handler to pass down (checks for isOnline)
     const handleDeleteMeal = (mealId: string) => {
         // Simple check for online status - replace with more robust check if needed
@@ -99,6 +105,10 @@ export default function NutritionPage() {
                     <MacroProgress date={selectedDate} />
                 </CardContent>
             </Card>
+
+            {/* --- Meal Gallery --- */} 
+            <MealGallery mealMediaIds={sampleMealMediaIds} />
+            {/* --- End Meal Gallery --- */} 
 
             {/* Log Form */}
             <Card>

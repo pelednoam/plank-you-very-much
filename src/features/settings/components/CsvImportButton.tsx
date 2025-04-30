@@ -141,6 +141,7 @@ export const CsvImportButton: React.FC<CsvImportButtonProps> = ({
                 accept=".csv"
                 style={{ display: 'none' }} // Hide the actual input
                 disabled={isImporting}
+                data-testid="csv-file-input"
             />
             <Button 
                 onClick={triggerFileInput}

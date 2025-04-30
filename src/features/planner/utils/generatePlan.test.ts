@@ -365,4 +365,78 @@ describe('generateWeeklyPlan', () => {
         // Corrected expectation based on backCareTemplate definition
         expect(typesBackCare).toEqual(['CLIMB', 'CLIMB', 'CORE', 'MOBILITY', 'REST', 'SWIM', 'SWIM']); 
     });
+
+    // --- Adaptation Tests: Back Issues --- 
+
+    it('should use back care template AND reduce CLIMB duration by ~20% if back issues active', () => {
+        const profileWithBackIssues = { ...baseUserProfile, backIssues: true };
+        const plan = generateWeeklyPlan(currentMonday, profileWithBackIssues); // No prev plan, no fat loss
+
+        // 1. Check template
+        const workoutTypes = plan.workouts.map(w => w.type);
+        expect(workoutTypes.filter(t => t === 'CORE').length).toBe(1);
+        expect(workoutTypes.includes('MOBILITY')).toBe(true);
+
+        // 2. Check durations
+        const climbWorkout = plan.workouts.find(w => w.type === 'CLIMB');
+        const swimWorkout = plan.workouts.find(w => w.type === 'SWIM');
+        const coreWorkout = plan.workouts.find(w => w.type === 'CORE');
+        const mobilityWorkout = plan.workouts.find(w => w.type === 'MOBILITY');
+
+        // Climb duration should be BASE * 0.8
+        expect(climbWorkout?.durationMin).toBe(Math.round(BASE_DURATIONS.CLIMB * 0.8)); // 90 * 0.8 = 72
+        // Other durations should remain at BASE
+        expect(swimWorkout?.durationMin).toBe(BASE_DURATIONS.SWIM); // 45
+        expect(coreWorkout?.durationMin).toBe(BASE_DURATIONS.CORE); // 30
+        expect(mobilityWorkout?.durationMin).toBe(BASE_DURATIONS.MOBILITY); // 20
+    });
+
+    it('should combine back issue reduction with other adaptations (e.g., fat loss, completion rate)', () => {
+        const profileWithBackIssuesAndGoal = {
+            ...baseUserProfile,
+            backIssues: true,
+            targetBodyFatPct: 10,
+            targetDate: dayjs().add(1, 'month').format('YYYY-MM-DD'),
+        };
+        const previousPlanHighCompletion = createMockPreviousPlan([
+            { type: 'CLIMB', completedAt: 'some-date' }, { type: 'SWIM', completedAt: 'some-date' },
+            { type: 'CORE', completedAt: 'some-date' }, { type: 'CLIMB', completedAt: 'some-date' },
+            { type: 'SWIM', completedAt: 'some-date' }, { type: 'CORE', completedAt: 'some-date' },
+            { type: 'REST' },
+        ]); // 6/6 completed = 100%
+
+        const plan = generateWeeklyPlan(currentMonday, profileWithBackIssuesAndGoal, previousPlanHighCompletion);
+
+        // Find a CLIMB workout
+        const climbWorkout = plan.workouts.find(w => w.type === 'CLIMB');
+        expect(climbWorkout).toBeDefined();
+
+        // Expected calculation:
+        // 1. Base Duration: 90
+        // 2. Fat Loss Boost: 90 + 15 = 105
+        // 3. Completion Rate Increase (100% -> 1.1 factor): Math.round(105 * 1.1) = Math.round(115.5) = 116
+        // 4. Back Issue Reduction (0.8 factor): Math.round(116 * 0.8) = Math.round(92.8) = 93
+        // 5. Round: 93 (Final Result)
+        expect(climbWorkout?.durationMin).toBe(93);
+    });
+
+    // --- Fat Loss Goal Tests ---
+
+    it('should increase CLIMB and SWIM duration by 15 mins if fat loss goal is active', () => {
+        const profileWithGoal = {
+            ...baseUserProfile,
+            targetBodyFatPct: 10,
+            targetDate: dayjs().add(1, 'month').format('YYYY-MM-DD'),
+        };
+        const plan = generateWeeklyPlan(currentMonday, profileWithGoal);
+        const climbWorkout = plan.workouts.find(w => w.type === 'CLIMB');
+        const swimWorkout = plan.workouts.find(w => w.type === 'SWIM');
+        const coreWorkout = plan.workouts.find(w => w.type === 'CORE');
+        // const mobilityWorkout = plan.workouts.find(w => w.type === 'MOBILITY'); // MOBILITY not in default template
+
+        expect(climbWorkout?.durationMin).toBe(BASE_DURATIONS.CLIMB + 15);
+        expect(swimWorkout?.durationMin).toBe(BASE_DURATIONS.SWIM + 15);
+        expect(coreWorkout?.durationMin).toBe(BASE_DURATIONS.CORE);
+        // expect(mobilityWorkout?.durationMin).toBe(BASE_DURATIONS.MOBILITY); // Cannot check MOBILITY here
+    });
 });

@@ -48,10 +48,10 @@ This project aims to follow the specifications outlined in [`Technical-Specifica
 *   **UI Components (shadcn/ui):** Core components added. (Spec Section 5 mentioned Tailwind; `shadcn/ui` is an addition).
 *   **Onboarding Flow (`/onboard`):** Implemented multi-step form. (Aligns with Spec Feature 4.1).
 *   **Dashboard (`/`):** Implemented with `MetricCards`, `ProgressChart`, `TodayWorkout`. (Aligns with Spec Feature 4.6 & Section 10).
-    *   `MetricCards` now displays synced Fitbit data (Steps, Sleep, Calories Burned).
+    *   `MetricCards` now displays synced Fitbit data (Steps, Sleep, **Synced Calories Out** from profile).
 *   **Nutrition (`/nutrition`):** Implemented meal logging. (Aligns with Spec Feature 4.5).
 *   **Planner (`/planner`):** Basic weekly view implemented.
-    *   **Adaptive Logic:** Implemented adaptive planner logic in `generateWeeklyPlan` based on previous week's completion rate (adjusts templates and durations). `plannerStore` updated to store multiple plans and pass previous week's data. (Partially implements Spec Feature 4.3 & Algorithm 8.4).
+    *   **Adaptive Logic:** Implemented adaptive planner logic in `generateWeeklyPlan` based on previous week's completion rate (adjusts templates and durations). `plannerStore` updated to store multiple plans and pass previous week's data. Tested and verified.
 *   **Workout Logging:** `WorkoutDetailsModal` implemented for marking workouts complete/incomplete. (Supports Planner).
 *   **Goal Engine:** TDEE/Calorie/Macro calculations (`src/lib/calculationUtils.ts`) implemented and tested. UI in Settings (`/settings/goals/page.tsx`) implemented. (Aligns with Spec Feature 4.2 & Algorithm 8.1-8.3).
 *   **Knowledge Base (`/knowledge`):** Implemented using markdown rendering. (Aligns with Spec Feature 4.7).
@@ -59,81 +59,76 @@ This project aims to follow the specifications outlined in [`Technical-Specifica
 *   **Fitbit Integration:** _(Spec Feature 4.12, Section 8A)_
     *   OAuth UI flow (`/settings/integrations/page.tsx`), callback handler (`/api/fitbit/callback/route.ts`), secure token storage (HTTP-only cookies), refresh mechanism, server actions (`src/lib/fitbitActions.ts` - tested) including sync and revoke.
     *   **Sync Trigger:** Automatic sync on connect and manual sync button implemented in Settings page (`IntegrationSettings` component).
-    *   **Data Usage:** Synced data (Steps, Sleep, Calories Burned) is stored in `activityStore` and displayed on the Dashboard via `MetricCards`. (Completes basic frontend integration).
+    *   **Data Usage:** Synced data (Steps, Sleep) stored in `activityStore`, `lastSyncedCaloriesOut` stored in `userProfileStore`. Data is displayed on the Dashboard via `MetricCards`.
 *   **Notifications (Backend & Manual Trigger):** _(Spec Feature 4.8, Section 11)_
     *   Frontend subscription UI/logic in Settings.
     *   Backend API routes (`/subscribe`, `/unsubscribe`) implemented using Vercel KV. Tested.
     *   Server action (`src/lib/notificationActions.ts`) for sending notifications implemented using `web-push` and Vercel KV. Tested.
     *   Service worker (`public/sw.js`) setup for receiving push messages.
     *   Manual trigger button in Settings (Dev) to test `triggerWorkoutReminders` action (uses mock data).
-*   **Testing:** Jest + RTL setup. Unit tests cover core utils, stores, offline sync, Fitbit actions, Notification API routes, Notification actions, and adaptive planner logic. (Aligns with Spec Section 13 for unit tests). See `tests.md`.
+*   **Testing:** Jest + RTL setup. Unit tests cover core utils, stores, offline sync, Fitbit actions, Notification API routes, Notification actions, and adaptive planner logic (`generateWeeklyPlan`, `plannerStore`). (Aligns with Spec Section 13 for unit tests). See `tests.md`.
 *   **Toast Notifications:** Implemented using `sonner`.
 *   **Data Export:** Implemented in Settings (`/settings/data-export/page.tsx`). (Aligns with Spec Feature 4.9).
 
-### Discrepancies Noted Between `README.md` (Previous Version) and `Technical-Specification-and-Implementation-Guide.md`
+### Discrepancies Noted Between Implementation and Technical Specification
 
-*   The previous README correctly noted the deviation from Pages Router to App Router.
-*   The previous README correctly noted that `shadcn/ui` and `Zod` were additions not in the original spec.
-*   The previous README correctly noted the use of Vercel KV, which wasn't in the spec's persistence plan (which focused on IndexedDB). KV is used for Auth sessions and Push subscriptions, while IndexedDB is used for client-side state persistence (stores).
-*   The previous README correctly identified NextAuth.js as the chosen auth solution, which wasn't specified initially.
-*   The spec's data models (Section 7) might differ slightly from the implemented TypeScript types (`src/types/index.ts`), particularly regarding Fitbit data structures after real API interaction.
-*   The spec proposed `simple-oauth2` (Section 8A), but the implementation likely uses NextAuth.js built-in OAuth handling or direct fetch calls for Fitbit token exchange.
+*   **App Router vs. Pages Router:** Implemented using App Router; Spec (Section 6) proposed Pages Router.
+*   **UI Library:** Uses `shadcn/ui`; Spec (Section 5) only mentioned Tailwind CSS.
+*   **Authentication:** Implemented using NextAuth.js v5; Spec didn't detail auth, but it's required.
+*   **Data Persistence:** Uses Vercel KV for Auth sessions and Push subscriptions; Spec (Section 5) focused on IndexedDB. IndexedDB (`idb-keyval`) is used for client-side store persistence.
+*   **Forms:** Uses `Zod` for validation alongside React Hook Form; Spec (Section 5) only mentioned RHF.
+*   **Fitbit OAuth:** Implementation uses NextAuth.js/direct fetch; Spec (Section 8A) suggested `simple-oauth2`.
+*   **Data Models:** Implemented types (`src/types/index.ts`) may differ slightly from Spec (Section 7) based on practical API usage (e.g., Fitbit structures).
 
 ### Current Issues / Known Limitations
 
-*   **Authentication:**
-    *   **Credentials provider uses placeholder `authorize` logic.** Needs secure implementation and testing.
-    *   OAuth provider setup (callback URLs) must be completed in Google/GitHub dev consoles for production.
-*   **Planner:**
-    *   Adaptive logic needs further refinement (e.g., incorporating user availability, back pain intensity - Spec Algorithm 8.4).
-    *   No UI for viewing past plans.
+*   **Authentication:** OAuth provider setup (callback URLs) must be completed in Google/GitHub dev consoles for production.
+*   **Planner:** Adaptive logic needs further refinement (e.g., incorporating user availability placeholder, back pain intensity - Spec Algorithm 8.4). No UI for viewing past plans.
 *   **Notifications:** Reminder **trigger logic missing** (cron/scheduler) and uses **mock workout data** for the manual test trigger. End-to-end push delivery needs thorough real-world verification.
 *   **Offline Sync Manager:** Uses **simulated backend calls**. Lacks robust error handling/retries for actual API failures.
 *   **Testing:** **Component tests (RTL)**, **E2E tests (Cypress)**, and **NextAuth API route tests** are **missing**. (See `tests.md`).
-*   **Layout (`layout.tsx`):** Potential lingering type issues with `BeforeInstallPromptEvent`. (Minor).
-*   **Fitbit Integration:** While basic sync and display work, auto-adjusting calorie targets based on synced data (Spec 8A.4, 17.v1.1) is not yet implemented in the goal engine/stores.
+*   **Fitbit Integration:** While basic sync and display work, **auto-adjusting calorie targets** based on synced `caloriesOut` (Spec 8A.4, 17.v1.1) is **not yet implemented** in the goal engine/stores.
 
 ### Missing Features / Next Steps (Prioritized based on Spec & Current State)
 
 **High Priority (Core Functionality & Spec v1.0/v1.1):**
 
-1.  **Authentication (Complete Implementation):**
-    *   Implement **secure `authorize` function** for Credentials provider.
-    *   Set up **OAuth callback URLs** in dev consoles for production.
-    *   _Test Coverage:_ Add tests for NextAuth API route, `authorize` logic, auth UI components.
+1.  **Fitbit Integration (Auto-Adjust Targets - Spec 8A.4, 17.v1.1):**
+    *   Modify `userProfileStore` or goal calculation logic to automatically adjust calorie/macro targets based on fetched `FitbitDaily.caloriesOut`.
+    *   _Test Coverage:_ Add tests for target adjustment logic.
 2.  **Planner Enhancements (Complete Adaptive Logic - Spec 4.3, 8.4):**
     *   Incorporate user availability (placeholder) and back-pain flags into plan generation.
     *   Refine adaptation rules based on user feedback/testing.
-    *   _Test Coverage:_ Ensure comprehensive tests cover all adaptive scenarios.
-3.  **Fitbit Integration (Auto-Adjust Targets - Spec 8A.4, 17.v1.1):**
-    *   Modify `userProfileStore` or goal calculation logic to automatically adjust calorie/macro targets based on fetched `FitbitDaily.caloriesOut`.
-    *   _Test Coverage:_ Add tests for target adjustment logic.
-4.  **Notifications (Trigger Logic & Verification - Spec 4.8, 11):**
+    *   _Test Coverage:_ Add/Update tests to cover these scenarios.
+3.  **Notifications (Trigger Logic & Verification - Spec 4.8, 11):**
     *   Implement **real data source** for `getWorkoutsNeedingReminders` (requires backend plan storage or reliable client-side query).
     *   Implement **reminder trigger logic** (e.g., Vercel Cron Job, scheduled function).
     *   **Verify end-to-end push delivery** with real data in various browser/OS scenarios.
-5.  **Offline Sync Manager (Robustness):**
+4.  **Offline Sync Manager (Robustness):**
     *   Replace **simulated backend calls** with actual API calls (e.g., for marking workouts complete, saving nutrition).
     *   Implement **robust error handling/retries**.
     *   _Test Coverage:_ Need tests for retry/error handling with real API mocks.
+5.  **Testing (Coverage - Spec 13):**
+    *   Add tests for the **NextAuth API route handler** (`/api/auth/[...nextauth]/route.ts`).
+    *   Begin implementing **Component Tests (RTL)** for critical UI components.
+    *   Set up and begin implementing **E2E Tests (Cypress)** for critical user flows.
 
 **Medium Priority (Completing Spec Features):**
 
-6.  **Wyze Scale Integration (Spec 4.13, 8F):** Implement Health Connect/Kit bridge or CSV import.
+6.  **Wyze Scale Integration (Spec 4.13, 8F):** CSV import implemented via Settings page. (Health Connect/Kit pending native wrapper or alternative solution).
 7.  **NFC Triggers (Spec 4.14, 8B, 8E):** Implement Web NFC / QR fallback and connect to workout logging.
-8.  **Media Library (Spec 4.10, 4.11, 6):** Implement `ExerciseVideo`, `MealGallery` components and integrate media assets.
+8.  **Media Library Integration (Spec 4.10, 4.11, 6):** Basic `ExerciseVideo` and `MealGallery` components created and integrated (using mock data). Pending connection to real data source and tests.
 9.  **Knowledge Cards Enhancements (Spec 4.7):** Add filtering/search if needed. Currently basic display.
-10. **Testing (Coverage - Spec 13):** Implement **Component Tests (RTL)** and **E2E Tests (Cypress)**. Add **NextAuth API route tests**.
 
 **Low Priority (Spec v2.0 / Polish):**
 
-11. **Equipment Cues (Spec 4.4):** Implement standing desk/balance board prompts/timers.
-12. **Data Export Enhancements (Spec 4.9):** Add JSON format if needed (currently CSV).
-13. **AI Plan Re-generation (Spec 17.v2.0):** Integrate with OpenAI API.
-14. **CI/CD Finalization (Spec 14):** Set up full GitHub Actions workflow including Cypress tests.
-15. **Accessibility & UX Polish (Spec 12):** Conduct review and refinement.
-16. **Guided Tutorials (Spec 4.14, 8D):** Implement modal and content for NFC setup.
-17. **Native Wrappers (Optional - Spec 8E):** Consider Capacitor/React Native if iOS NFC is critical.
+10. **Equipment Cues (Spec 4.4):** Implement standing desk/balance board prompts/timers.
+11. **Data Export Enhancements (Spec 4.9):** Add JSON format if needed (currently CSV).
+12. **AI Plan Re-generation (Spec 17.v2.0):** Integrate with OpenAI API.
+13. **CI/CD Finalization (Spec 14):** Set up full GitHub Actions workflow including Cypress tests.
+14. **Accessibility & UX Polish (Spec 12):** Conduct review and refinement.
+15. **Guided Tutorials (Spec 4.14, 8D):** Implement modal and content for NFC setup.
+16. **Native Wrappers (Optional - Spec 8E):** Consider Capacitor/React Native if iOS NFC is critical.
 
 ## 4. Getting Started
 

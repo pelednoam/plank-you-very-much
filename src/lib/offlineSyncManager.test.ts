@@ -1,6 +1,9 @@
 import { processOfflineQueue, initializeSyncManager } from './offlineSyncManager';
-import { useOfflineQueueStore } from '@/store/offlineQueueStore';
-import { QueuedAction } from '@/store/offlineQueueStore'; // Import the type
+import { useOfflineQueueStore, type QueuedAction } from '@/store/offlineQueueStore';
+// Import SERVER ACTIONS to mock them
+import { updateWorkoutCompletionServer } from "@/features/planner/actions/plannerActions";
+import { addMealServer, deleteMealServer } from "@/features/nutrition/actions/nutritionActions";
+import { addMetricServer } from "@/features/metrics/actions/metricsActions";
 
 // Mock the offline queue store
 jest.mock('@/store/offlineQueueStore', () => ({
@@ -10,6 +13,25 @@ jest.mock('@/store/offlineQueueStore', () => ({
     setState: jest.fn(),
   }
 }));
+
+// --- Mock Server Actions --- 
+jest.mock('@/features/planner/actions/plannerActions', () => ({
+  updateWorkoutCompletionServer: jest.fn(),
+}));
+jest.mock('@/features/nutrition/actions/nutritionActions', () => ({
+  addMealServer: jest.fn(),
+  deleteMealServer: jest.fn(),
+}));
+jest.mock('@/features/metrics/actions/metricsActions', () => ({
+  addMetricServer: jest.fn(),
+}));
+
+// Create references to the mocked server actions
+const mockedUpdateWorkout = updateWorkoutCompletionServer as jest.Mock;
+const mockedAddMeal = addMealServer as jest.Mock;
+const mockedDeleteMeal = deleteMealServer as jest.Mock;
+const mockedAddMetric = addMetricServer as jest.Mock;
+// --- End Mock Server Actions --- 
 
 // Spy on window event listeners
 const addEventListenerSpy = jest.spyOn(window, 'addEventListener');
@@ -54,6 +76,17 @@ describe('Offline Sync Manager', () => {
         Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
         // Reset Math.random mock if used
          jest.spyOn(Math, 'random').mockRestore();
+
+        // Reset server action mocks
+        mockedUpdateWorkout.mockClear();
+        mockedAddMeal.mockClear();
+        mockedDeleteMeal.mockClear();
+        mockedAddMetric.mockClear();
+        // Default mock implementation (success)
+        mockedUpdateWorkout.mockResolvedValue({ success: true });
+        mockedAddMeal.mockResolvedValue({ success: true, mealId: 'mock-meal-id' });
+        mockedDeleteMeal.mockResolvedValue({ success: true });
+        mockedAddMetric.mockResolvedValue({ success: true });
     });
 
     describe('processOfflineQueue', () => {
@@ -64,20 +97,123 @@ describe('Offline Sync Manager', () => {
             expect(mockRemoveAction).not.toHaveBeenCalled();
         });
 
-        it('should process a planner/markComplete action successfully (assume success)', async () => {
+        it('should call updateWorkoutCompletionServer for planner/markComplete action', async () => {
             const action: QueuedAction = {
-                id: 'action-1',
+                id: 'action-w1',
                 type: 'planner/markComplete',
-                payload: { workoutId: 'w1', completionData: { notes: 'done' } },
+                payload: { workoutId: 'w123', isComplete: true, completedAt: '2024-01-01T10:00:00Z' },
                 timestamp: new Date().toISOString(),
             };
             mockPendingActions = [action];
-            // No need to update mock return value manually anymore
+            mockedUpdateWorkout.mockResolvedValueOnce({ success: true }); // Ensure success for this test
+
             await processOfflineQueue();
 
-            expect(mockRemoveAction).toHaveBeenCalledTimes(1);
-            expect(mockRemoveAction).toHaveBeenCalledWith('action-1');
+            expect(mockedUpdateWorkout).toHaveBeenCalledTimes(1);
+            expect(mockedUpdateWorkout).toHaveBeenCalledWith('w123', true, '2024-01-01T10:00:00Z');
+            expect(mockRemoveAction).toHaveBeenCalledWith('action-w1');
             expect(mockPendingActions.length).toBe(0);
+        });
+        
+        it('should call addMealServer for nutrition/addMeal action', async () => {
+            const mealPayload = { name: 'Test Meal', kcal: 500, proteinG: 30, carbsG: 50, fatG: 20, lactoseFree: true, timestamp: '' }; // Example payload
+            const action: QueuedAction = {
+                id: 'action-m1',
+                type: 'nutrition/addMeal',
+                payload: mealPayload,
+                timestamp: new Date().toISOString(),
+            };
+            mockPendingActions = [action];
+            mockedAddMeal.mockResolvedValueOnce({ success: true, mealId: 'm-server-1'});
+
+            await processOfflineQueue();
+
+            expect(mockedAddMeal).toHaveBeenCalledTimes(1);
+            expect(mockedAddMeal).toHaveBeenCalledWith(mealPayload);
+            expect(mockRemoveAction).toHaveBeenCalledWith('action-m1');
+            expect(mockPendingActions.length).toBe(0);
+        });
+
+        it('should call deleteMealServer for nutrition/deleteMeal action', async () => {
+            const action: QueuedAction = {
+                id: 'action-m2',
+                type: 'nutrition/deleteMeal',
+                payload: { mealId: 'meal-to-delete' },
+                timestamp: new Date().toISOString(),
+            };
+            mockPendingActions = [action];
+            mockedDeleteMeal.mockResolvedValueOnce({ success: true });
+
+            await processOfflineQueue();
+
+            expect(mockedDeleteMeal).toHaveBeenCalledTimes(1);
+            expect(mockedDeleteMeal).toHaveBeenCalledWith('meal-to-delete');
+            expect(mockRemoveAction).toHaveBeenCalledWith('action-m2');
+            expect(mockPendingActions.length).toBe(0);
+        });
+        
+        it('should call addMetricServer for metrics/addMetric action', async () => {
+            const metricPayload = { date: '2024-07-30', weightKg: 79.5, bodyFatPct: 14.8, source: 'MANUAL' } as any;
+            const action: QueuedAction = {
+                id: 'action-met1',
+                type: 'metrics/addMetric',
+                payload: metricPayload,
+                timestamp: new Date().toISOString(),
+            };
+            mockPendingActions = [action];
+            mockedAddMetric.mockResolvedValueOnce({ success: true });
+
+            await processOfflineQueue();
+
+            expect(mockedAddMetric).toHaveBeenCalledTimes(1);
+            expect(mockedAddMetric).toHaveBeenCalledWith(metricPayload);
+            expect(mockRemoveAction).toHaveBeenCalledWith('action-met1');
+            expect(mockPendingActions.length).toBe(0);
+        });
+
+        it('should schedule retry if server action returns success: false', async () => {
+            const action: QueuedAction = {
+                id: 'action-w-fail',
+                type: 'planner/markComplete',
+                payload: { workoutId: 'w-fail', isComplete: true },
+                timestamp: new Date().toISOString(),
+            };
+            mockPendingActions = [action];
+            mockedUpdateWorkout.mockResolvedValueOnce({ success: false, error: 'Server Busy' });
+
+            await processOfflineQueue();
+
+            expect(mockedUpdateWorkout).toHaveBeenCalledTimes(1);
+            expect(mockRemoveAction).not.toHaveBeenCalled();
+            expect(mockUpdateActionMetadata).toHaveBeenCalledWith('action-w-fail', expect.objectContaining({
+                retryCount: 1,
+                failed: false,
+                error: 'Server Busy', // Error message from server action
+                lastAttemptTimestamp: expect.any(Number),
+            }));
+            expect(mockPendingActions.length).toBe(1);
+        });
+        
+        it('should throw error and schedule retry if payload is invalid for action type', async () => {
+            const action: QueuedAction = {
+                id: 'action-bad-payload',
+                type: 'planner/markComplete',
+                payload: { wrongField: 'abc' }, // Missing workoutId/isComplete
+                timestamp: new Date().toISOString(),
+            };
+            mockPendingActions = [action];
+
+            await processOfflineQueue();
+
+            expect(mockedUpdateWorkout).not.toHaveBeenCalled(); // Should fail before calling action
+            expect(mockRemoveAction).not.toHaveBeenCalled();
+            expect(mockUpdateActionMetadata).toHaveBeenCalledWith('action-bad-payload', expect.objectContaining({
+                retryCount: 1,
+                failed: false,
+                error: 'Invalid payload for planner/markComplete', 
+                lastAttemptTimestamp: expect.any(Number),
+            }));
+            expect(mockPendingActions.length).toBe(1);
         });
 
         it('should handle unknown action types by marking as failed', async () => {

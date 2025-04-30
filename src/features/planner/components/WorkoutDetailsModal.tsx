@@ -32,12 +32,14 @@ import {
 } from "@/components/ui/form"; // Assuming form was added previously
 import { Badge } from "@/components/ui/badge"; // To display workout type
 import { toast } from 'sonner';
+import { Checkbox } from "@/components/ui/checkbox"; // Import Checkbox
+import ExerciseVideo from '@/features/media/components/ExerciseVideo'; // Import the new component
 
 // Adjusted schema for logging workout performance
 const workoutLogSchema = z.object({
     actualDurationMin: z.coerce.number().positive("Duration must be positive").optional(),
     performanceNotes: z.string().max(500, "Notes too long").optional(),
-    rating: z.coerce.number().min(1).max(10).optional(), // RPE or satisfaction
+    performanceRating: z.coerce.number().min(1).max(10).optional(), // RPE or satisfaction
     completed: z.boolean(), // Removed .default(false)
 });
 type WorkoutLogFormData = z.infer<typeof workoutLogSchema>;
@@ -63,7 +65,7 @@ export function WorkoutDetailsModal({ workoutId, isOpen, onOpenChange }: Workout
         defaultValues: {
             actualDurationMin: workout?.actualDurationMin ?? undefined,
             performanceNotes: workout?.performanceNotes ?? '',
-            rating: workout?.rating ?? undefined,
+            performanceRating: workout?.performanceRating ?? undefined,
             completed: !!workout?.completedAt, // Set checkbox based on completedAt
         },
     });
@@ -74,7 +76,7 @@ export function WorkoutDetailsModal({ workoutId, isOpen, onOpenChange }: Workout
             form.reset({
                 actualDurationMin: workout.actualDurationMin ?? undefined,
                 performanceNotes: workout.performanceNotes ?? '',
-                rating: workout.rating ?? undefined,
+                performanceRating: workout.performanceRating ?? undefined,
                 completed: !!workout.completedAt,
             });
         }
@@ -87,7 +89,7 @@ export function WorkoutDetailsModal({ workoutId, isOpen, onOpenChange }: Workout
             const updates: Partial<Workout> = {
                 actualDurationMin: data.actualDurationMin,
                 performanceNotes: data.performanceNotes,
-                rating: data.rating,
+                performanceRating: data.performanceRating,
                 completedAt: data.completed
                     ? (workout.completedAt || dayjs().toISOString())
                     : undefined,
@@ -107,10 +109,12 @@ export function WorkoutDetailsModal({ workoutId, isOpen, onOpenChange }: Workout
         return null; // Or some fallback UI within the Dialog if needed
     }
 
+    // Get the primary media ID (e.g., the first one)
+    const primaryMediaId = workout.mediaIds?.[0];
+
     return (
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
-            {/* Removed DialogTrigger - state controlled externally */}
-            <DialogContent className="sm:max-w-[425px]">
+            <DialogContent className="sm:max-w-lg"> {/* Increased max width */}
                 <DialogHeader>
                     <DialogTitle className="flex items-center space-x-2">
                          <Badge variant="outline">{workout.type}</Badge>
@@ -120,13 +124,19 @@ export function WorkoutDetailsModal({ workoutId, isOpen, onOpenChange }: Workout
                          Planned for {dayjs(workout.plannedAt).format('ddd, MMM D, YYYY')} ({workout.durationMin} min)
                     </DialogDescription>
                 </DialogHeader>
+                
+                {/* --- Exercise Video Section --- */} 
+                {primaryMediaId && (
+                    <div className="my-4">
+                         <ExerciseVideo mediaId={primaryMediaId} />
+                    </div>
+                )}
+                {/* --- End Exercise Video Section --- */} 
+                
                  <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
-                        {/* Display planned details (read-only for now) */}
-                        {/* <p>Type: {workout.type}</p>
-                        <p>Planned Duration: {workout.durationMin} minutes</p> */}
+                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-0 pb-4"> {/* Adjusted padding */} 
                         
-                        {/* Logging Form Fields */}
+                        {/* Logging Form Fields */} 
                         <FormField
                             control={form.control}
                             name="actualDurationMin"
@@ -142,7 +152,7 @@ export function WorkoutDetailsModal({ workoutId, isOpen, onOpenChange }: Workout
                         />
                         <FormField
                             control={form.control}
-                            name="rating"
+                            name="performanceRating"
                              render={({ field }: FormFieldRenderProps) => (
                                 <FormItem>
                                     <FormLabel>Rating / RPE (1-10)</FormLabel>

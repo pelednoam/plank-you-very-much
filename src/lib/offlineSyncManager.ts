@@ -1,5 +1,9 @@
 import { useOfflineQueueStore, type QueuedAction } from "@/store/offlineQueueStore";
 import { usePlannerStore } from "@/store/plannerStore";
+// Import the placeholder server actions
+import { updateWorkoutCompletionServer } from "@/features/planner/actions/plannerActions";
+import { addMealServer, deleteMealServer } from "@/features/nutrition/actions/nutritionActions";
+import { addMetricServer } from "@/features/metrics/actions/metricsActions";
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000 * 10; // 10 seconds delay before retrying (can be adjusted)
@@ -37,27 +41,67 @@ export const processOfflineQueue = async () => {
         }
 
         console.log(`[Sync Manager] Processing action: ${action.type} (ID: ${action.id}), Retry: ${retryCount}`);
-        let success = false;
-        let errorInfo: any = null;
+        let syncResult: { success: boolean; error?: string } = { success: false, error: 'processing_not_attempted' }; // Default result
 
         try {
+            // Ensure payload exists and is an object for actions that need it
+            const payload = (action.payload && typeof action.payload === 'object') ? action.payload : {};
+            
             switch (action.type) {
-                case 'planner/markComplete':
-                    console.warn(`[Sync Manager] Assuming success for action ${action.type} (ID: ${action.id}) - NO ACTUAL SYNC PERFORMED.`);
-                    await new Promise(resolve => setTimeout(resolve, 50)); 
-                    success = true;
+                case 'planner/markComplete': {
+                    // Validate payload structure
+                    const { workoutId, isComplete, completedAt } = payload as { workoutId?: string; isComplete?: boolean; completedAt?: string | null };
+                    if (typeof workoutId !== 'string' || typeof isComplete !== 'boolean') {
+                        throw new Error('Invalid payload for planner/markComplete');
+                    }
+                    console.log(`[Sync Manager] Calling server action updateWorkoutCompletionServer for ${workoutId}`);
+                    syncResult = await updateWorkoutCompletionServer(workoutId, isComplete, completedAt);
                     break;
+                }
+                case 'nutrition/addMeal': {
+                    // Assume payload is Meal data (without ID)
+                    // Add validation if necessary
+                    const mealData = payload as any; // Cast for now, add type check later
+                     if (!mealData || typeof mealData !== 'object') {
+                         throw new Error('Invalid payload for nutrition/addMeal');
+                     }
+                    console.log(`[Sync Manager] Calling server action addMealServer`);
+                    // We don't strictly need the returned mealId here, just success/fail
+                    syncResult = await addMealServer(mealData);
+                    break;
+                }
+                case 'nutrition/deleteMeal': {
+                    const { mealId } = payload as { mealId?: string };
+                     if (typeof mealId !== 'string') {
+                         throw new Error('Invalid payload for nutrition/deleteMeal');
+                     }
+                    console.log(`[Sync Manager] Calling server action deleteMealServer for ${mealId}`);
+                    syncResult = await deleteMealServer(mealId);
+                    break;
+                }
+                 case 'metrics/addMetric': {
+                     // Assume payload is BodyMetrics data
+                     const metricData = payload as any; // Cast for now, add type check later
+                     if (!metricData || typeof metricData !== 'object' || !metricData.date) {
+                         throw new Error('Invalid payload for metrics/addMetric');
+                     }
+                     console.log(`[Sync Manager] Calling server action addMetricServer for ${metricData.date}`);
+                     syncResult = await addMetricServer(metricData);
+                     break;
+                 }
                 default:
                     console.warn(`[Sync Manager] Unknown action type: ${action.type}. Marking as failed.`);
-                    errorInfo = { error: 'unknown_action_type', type: action.type };
-                    success = false; 
+                    // Set syncResult to failure for unknown types - Match test expectation
+                    syncResult = { success: false, error: `Unknown Action Type: ${action.type}` }; 
             }
 
-            if (success) {
+            // Check the result from the server action
+            if (syncResult.success) {
                 removeAction(action.id);
-                console.log(`[Sync Manager] Successfully processed and removed action ${action.id} from queue.`);
+                console.log(`[Sync Manager] Successfully processed and removed action ${action.id} (${action.type}) from queue.`);
             } else {
-                 throw errorInfo || new Error('Processing failed for unknown reason');
+                 // Throw the error received from the server action (or the default error)
+                 throw new Error(syncResult.error || 'Sync action failed for unknown reason'); 
             }
         } catch (error) {
             // This catch block now has access to retryCount, now, MAX_RETRIES, updateActionMetadata
@@ -67,10 +111,7 @@ export const processOfflineQueue = async () => {
             
             // Determine the error message to store
             let errorMessage: string;
-            if (error && typeof error === 'object' && 'error' in error && error.error === 'unknown_action_type') {
-                 // Assert type for `error.type` access
-                errorMessage = `Unknown Action Type: ${(error as any).type}`;
-            } else if (error instanceof Error) {
+            if (error instanceof Error) {
                  errorMessage = error.message;
             } else {
                  errorMessage = String(error);

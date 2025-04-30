@@ -20,16 +20,19 @@ These tests verify individual functions, components, or modules in isolation.
 
 *   **`src/lib/calculationUtils.test.ts`**
     *   **Status:** ✅ Passing
-    *   **Description:** Tests BMR, TDEE, Calorie Target (inc. Fitbit sync priority), LBM, Protein Target calculations. Confirmed passing after rounding fix.
+    *   **Description:** Tests BMR, TDEE, Calorie Target (inc. Fitbit sync priority), LBM, Protein Target calculations.
 *   **`src/lib/offlineSyncManager.test.ts`**
     *   **Status:** ✅ Passing
-    *   **Description:** Tests the offline sync manager's ability to process queued actions, including retry logic and handling of unknown actions (using assumed success for known actions).
+    *   **Description:** Tests the offline sync manager's ability to process queued actions (using simulated success for known actions).
 *   **`src/lib/fitbitActions.test.ts`**
     *   **Status:** ✅ Passing
     *   **Description:** Tests Fitbit server actions (refresh, fetch, sync, revoke) using mocked API calls and user ID retrieval.
 *   **`src/lib/notificationActions.test.ts`**
     *   **Status:** ✅ Passing
     *   **Description:** Tests notification sending logic (`triggerWorkoutReminders`, `sendNotification`) using mocked KV and web-push. *Does not test trigger logic accuracy or real data fetching.*
+*   **`src/lib/auth.authorize.test.ts`**
+    *   **Status:** ✅ Passing
+    *   **Description:** Tests the Credentials provider `authorize` function logic (KV lookups, password hashing, OAuth vs. Credentials checks) using mocks.
 *   **`src/lib/auth.ts`**
     *   **Status:** ➖ Missing
     *   **Description:** Tests for `getCurrentUserId` utility function (important for securing server actions).
@@ -38,7 +41,7 @@ These tests verify individual functions, components, or modules in isolation.
 
 *   **`src/store/activityStore.test.ts`**
     *   **Status:** ✅ Passing
-    *   **Description:** Tests adding/updating/retrieving daily activity data, including Fitbit sync data like steps, sleep, calories.
+    *   **Description:** Tests adding/updating/retrieving daily activity data (Fitbit sync data).
 *   **`src/store/metricsStore.test.ts`**
     *   **Status:** ✅ Passing
     *   **Description:** Tests adding/updating/retrieving body metrics (weight, body fat).
@@ -47,25 +50,25 @@ These tests verify individual functions, components, or modules in isolation.
     *   **Description:** Tests adding, removing, and processing actions in the offline queue.
 *   **`src/store/nutritionStore.test.ts`**
     *   **Status:** ✅ Passing
-    *   **Description:** Tests adding/deleting meals with offline handling (queuing actions).
+    *   **Description:** Tests adding/deleting meals with offline handling.
 *   **`src/store/plannerStore.test.ts`**
-    *   **Status:** ✅ Passing
-    *   **Description:** Tests plan generation trigger (`generatePlanForWeek`), adaptive logic execution (passing previous plan data), multi-plan storage/retrieval (`getPlanForDate`), workout completion marking (`markWorkoutComplete`) including offline handling, and store initialization logic.
+    *   **Status:** ✅ Passing *(Verified after recent changes)*
+    *   **Description:** Tests plan generation trigger, adaptive logic execution (passing previous plan), multi-plan storage/retrieval, workout completion marking (inc. offline), and store initialization.
 *   **`src/store/userProfileStore.test.ts`**
     *   **Status:** ✅ Passing
-    *   **Description:** Tests profile updates, goal setting/retrieval, Fitbit connection status updates, and fitness data updates (TDEE, LBM etc.).
+    *   **Description:** Tests profile updates, goal setting, Fitbit connection status, and fitness data updates.
 
 ### Features (`src/features`)
 
 *   **`src/features/planner/utils/generatePlan.test.ts`**
-    *   **Status:** ✅ Passing
-    *   **Description:** Tests the core `generateWeeklyPlan` utility, including template selection based on profile, adaptation based on previous week completion rates (template switching, duration increase/decrease), fat loss goal interaction, and minimum workout duration enforcement.
+    *   **Status:** ✅ Passing *(Verified after recent changes)*
+    *   **Description:** Tests the core `generateWeeklyPlan` utility, including adaptive logic based on previous week completion (template switching, duration adaptation), profile flags (back issues), fat loss goal interaction, and minimum duration enforcement.
 
 ### API Routes (`src/app/api`)
 
 *   **`src/app/api/fitbit/callback/route.test.ts`**
     *   **Status:** ✅ Passing
-    *   **Description:** Tests the Fitbit OAuth callback handler logic for exchanging code for tokens and storing them securely (using mocks).
+    *   **Description:** Tests the Fitbit OAuth callback handler (token exchange, storage) using mocks.
 *   **`src/app/api/notifications/subscribe/route.test.ts`**
     *   **Status:** ✅ Passing
     *   **Description:** Tests the API endpoint for saving a push subscription (uses mocked KV, auth).
@@ -74,13 +77,13 @@ These tests verify individual functions, components, or modules in isolation.
     *   **Description:** Tests the API endpoint for deleting a push subscription (uses mocked KV, auth).
 *   **`src/app/api/auth/[...nextauth]/route.ts`**
     *   **Status:** ➖ Missing
-    *   **Description:** Tests for the NextAuth.js catch-all route handler, including provider logic (especially the Credentials `authorize` function once implemented).
+    *   **Description:** Tests for the NextAuth.js catch-all route handler.
 
 ### Components (`src/components`, `src/features/*/components`)
 
 *   **Status:** ➖ Missing
 *   **Description:** No component-level tests implemented yet using React Testing Library.
-    *   **Key Missing Examples:** `<UserProfileForm />`, `<GoalSettingsForm />`, `<WorkoutDetailsModal />`, `<Dashboard />`, `<MetricCards />`, `<Planner />`, `<NutritionLog />`, `<IntegrationSettings />`, `<NotificationSettings />`.
+    *   **Key Missing Examples:** `<UserProfileForm />`, `<GoalSettingsForm />`, `<WorkoutDetailsModal />`, `<Dashboard />`, `<MetricCards />`, `<Planner />`, `<NutritionLog />`, `<IntegrationSettings />`, `<NotificationSettings />`, `<CsvImportButton />`, `<ExerciseVideo />`, `<MealGallery />`.
 
 ### Auth Components (`src/components/auth`)
 
@@ -97,7 +100,7 @@ These tests verify individual functions, components, or modules in isolation.
 ### Auth Middleware (`src/middleware.ts`)
 
 *   **Status:** ➖ Missing
-*   **Description:** Tests for the NextAuth.js middleware logic, verifying route protection rules (which routes are protected/public) based on the `config.matcher`.
+*   **Description:** Tests for the NextAuth.js middleware logic, verifying route protection rules based on the `config.matcher`.
 
 ---
 

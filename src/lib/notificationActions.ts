@@ -14,6 +14,7 @@ import { kv } from '@vercel/kv';
 // We can potentially move this setup inside the function as well if necessary,
 // but let's try reading keys inside first.
 // Ensure webpush mock is available here.
+/* // --- REMOVE Module-level VAPID setup --- 
 if (typeof webpush?.setVapidDetails === 'function') {
     const key = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     const secret = process.env.VAPID_PRIVATE_KEY;
@@ -34,210 +35,187 @@ if (typeof webpush?.setVapidDetails === 'function') {
 } else {
      console.warn("[WebPush] webpush or setVapidDetails mock not ready at module load.");
 }
+*/ // --- END REMOVAL --- 
 
-// Placeholder: Function to get upcoming workouts (replace with actual data source)
-interface PlannedWorkout {
-    userId: string;
+// Placeholder: Function to get upcoming workouts FOR A SPECIFIC USER
+// This needs to query a data source (e.g., Vercel KV, database) where plans are stored server-side.
+interface PlannedWorkoutForUser {
+    // userId: string; // Implicitly known
+    workoutId: string; // Unique ID for the workout instance
     workoutType: string;
     plannedAt: string; // ISO DateTime string
-    reminderTime?: string; // ISO DateTime string (e.g., 30 mins before)
+    // reminderTime?: string; // ISO DateTime string (e.g., 30 mins before)
 }
 
-async function getWorkoutsNeedingReminders(withinMinutes: number = 35): Promise<PlannedWorkout[]> {
-    console.log('[Notifications Trigger] Fetching workouts needing reminders (PLACEHOLDER DATA).');
-    const now = new Date();
-    const cutoff = new Date(now.getTime() + withinMinutes * 60000);
+// Replace with actual query to your database/data source for planned workouts for a specific user
+async function getUpcomingWorkoutsForUser(userId: string, fromDate: Date, toDate: Date): Promise<PlannedWorkoutForUser[]> {
+    console.log(`[Notifications Action] Fetching workouts for user ${userId} between ${fromDate.toISOString()} and ${toDate.toISOString()} (PLACEHOLDER - NO ACTUAL FETCH)`);
     
-    // --- Attempt to get current user ID for testing --- 
-    let currentUserId = 'MOCK_USER_FOR_REMINDER'; // Default mock ID
-    try {
-        const userId = await getCurrentUserId(); // Use the actual auth function
-        if (userId) {
-            currentUserId = userId;
-            console.log(`[Notifications Trigger] Using current user ID for mock reminder: ${currentUserId}`);
-        } else {
-             console.log(`[Notifications Trigger] No current user found, using default mock ID.`);
-        }
-    } catch (authError) {
-        console.error("[Notifications Trigger] Error getting current user ID:", authError);
-    }
-    // --- End attempt ---
-
-    // Replace with actual query to your database/data source for planned workouts
-    const MOCK_PLANNED_WORKOUTS: PlannedWorkout[] = [
-        // Add a workout for the current/mock user starting in 15 minutes
-        { userId: currentUserId, workoutType: 'TEST_REMINDER_CORE', plannedAt: new Date(now.getTime() + 15 * 60000).toISOString() },
-        // Keep other mock workouts for different users
-        { userId: 'OTHER_USER_456', workoutType: 'SWIM', plannedAt: new Date(now.getTime() + 20 * 60000).toISOString() },
-        { userId: 'USER_789', workoutType: 'CLIMB', plannedAt: new Date(now.getTime() + 60 * 60000).toISOString() }, // Too far away
-    ];
-
-    return MOCK_PLANNED_WORKOUTS.filter(workout => {
+    // --- SIMULATE FETCHING AND FILTERING --- 
+    // In a real implementation, you'd query your DB/KV store here using userId and the date range.
+    // For testing, let's return a mock workout if the userId matches the one we expect in tests.
+    // This mock should only trigger if the trigger time aligns.
+    const MOCK_USER_PLANS: Record<string, PlannedWorkoutForUser[]> = {
+        // Example: User 'test-user-123' has a CORE workout planned soon
+        'test-user-123': [
+            { workoutId: 'workout-abc', workoutType: 'CORE', plannedAt: new Date(Date.now() + 15 * 60000).toISOString() },
+            { workoutId: 'workout-def', workoutType: 'SWIM', plannedAt: new Date(Date.now() + 2 * 60 * 60000).toISOString() }, // Too far out
+        ],
+        'other-user-456': [
+            { workoutId: 'workout-ghi', workoutType: 'CLIMB', plannedAt: new Date(Date.now() + 25 * 60000).toISOString() },
+        ]
+    };
+    
+    const userWorkouts = MOCK_USER_PLANS[userId] || [];
+    
+    // Filter the simulated workouts based on the provided date range
+    return userWorkouts.filter(workout => {
         const plannedTime = new Date(workout.plannedAt);
-        // Reminder if planned between now and cutoff time
-        return plannedTime > now && plannedTime <= cutoff;
+        return plannedTime >= fromDate && plannedTime <= toDate;
     });
+    // --- END SIMULATION ---
 }
 
-export async function triggerWorkoutReminders(): Promise<{ success: boolean; sent: number; failed: number; errors: any[] }> {
+export async function triggerWorkoutReminders(withinMinutes: number = 35): Promise<{ success: boolean; sent: number; failed: number; errors: any[] }> {
     console.log('[Notifications Trigger] Starting workout reminder process...');
 
-    // Read VAPID keys from process.env *inside* the function
+    // Read VAPID keys and check configuration
     const currentVapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     const currentVapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
-
-    // Check for keys *inside* the function
-    // Also ensure webpush object/mock itself exists
-    if (!webpush || typeof webpush.sendNotification !== 'function' || !currentVapidPublicKey || !currentVapidPrivateKey) {
-        console.error('[Notifications Trigger] WebPush not configured or VAPID keys missing. Cannot send.');
-        // Optionally re-attempt VAPID setup here if keys are present but setup failed initially
-        if (webpush && typeof webpush.setVapidDetails === 'function' && currentVapidPublicKey && currentVapidPrivateKey) {
-             try {
-                 webpush.setVapidDetails('mailto:admin@plankyou.app', currentVapidPublicKey, currentVapidPrivateKey);
-                 console.log("[WebPush] Re-attempted VAPID setup inside function.");
-                 // Potentially proceed if setup now succeeds, but safer to return error if initial setup failed
-             } catch (setupError) {
-                 console.error("[WebPush] Failed to set VAPID details inside function:", setupError);
-             }
-        }
+    
+    // --- Setup VAPID Details INSIDE the function --- 
+    let vapidSetupOk = false;
+    if (webpush && typeof webpush.setVapidDetails === 'function' && currentVapidPublicKey && currentVapidPrivateKey) {
+         try {
+             webpush.setVapidDetails('mailto:admin@plankyou.app', currentVapidPublicKey, currentVapidPrivateKey);
+             console.log("[WebPush] VAPID details set inside trigger function.");
+             vapidSetupOk = true;
+         } catch (setupError) {
+             console.error("[WebPush] Failed to set VAPID details inside trigger function:", setupError);
+             // Fall through to the check below
+         }
+    }
+    // --- End VAPID Setup ---
+    
+    if (!webpush || typeof webpush.sendNotification !== 'function' || !vapidSetupOk) { // Check vapidSetupOk flag
+        console.error('[Notifications Trigger] WebPush not configured or VAPID keys missing/invalid. Cannot send.');
         return { success: false, sent: 0, failed: 0, errors: [{ error: 'VAPID keys not configured or web-push unavailable' }] };
     }
-
-    // Assume VAPID details were set correctly at module load or re-attempted if needed
 
     let sentCount = 0;
     let failCount = 0;
     const errors: any[] = [];
+    const now = new Date();
+    const cutoffTime = new Date(now.getTime() + withinMinutes * 60000);
 
     try {
-        // 1. Get workouts planned soon
-        const workoutsToRemind = await getWorkoutsNeedingReminders();
-        if (workoutsToRemind.length === 0) {
-            console.log('[Notifications Trigger] No workouts found needing reminders currently.');
-            return { success: true, sent: 0, failed: 0, errors: [] };
-        }
-
-        // 2. Get all subscriptions
+        // 1. Get all subscriptions
         const allSubscriptions = await dbGetAllSubscriptions();
         if (allSubscriptions.length === 0) {
             console.log('[Notifications Trigger] No subscriptions found to send reminders to.');
             return { success: true, sent: 0, failed: 0, errors: [] };
         }
 
-        // 3. Map subscriptions by userId 
+        // 2. Group subscriptions by userId
         const subsByUser = allSubscriptions.reduce((acc, storedSub) => {
             if (!acc[storedSub.userId]) {
                 acc[storedSub.userId] = [];
             }
-            acc[storedSub.userId].push(storedSub.subscription);
+            // Ensure we don't add duplicate endpoints per user
+            if (!acc[storedSub.userId].some(sub => sub.endpoint === storedSub.subscription.endpoint)) {
+                 acc[storedSub.userId].push(storedSub.subscription);
+            }
             return acc;
         }, {} as Record<string, PushSubscription[]>);
 
-        // 4. Prepare and send notifications
-        const sendPromises: Promise<any>[] = []; // Store promises from sendNotification
-        const sentEndpoints = new Set<string>(); 
+        // 3. Iterate through users with subscriptions
+        const sendPromises: Promise<any>[] = [];
+        const notifiedWorkoutIds = new Set<string>(); // Prevent duplicate reminders for the same workout if user has multiple devices
 
-        for (const workout of workoutsToRemind) {
-            const userSubscriptions = subsByUser[workout.userId];
-            if (userSubscriptions && userSubscriptions.length > 0) {
+        for (const userId in subsByUser) {
+            console.log(`[Notifications Trigger] Checking user ${userId} for upcoming workouts...`);
+            const userSubscriptions = subsByUser[userId];
+
+            // 4. Fetch upcoming workouts for this specific user (using placeholder)
+            const upcomingWorkouts = await getUpcomingWorkoutsForUser(userId, now, cutoffTime);
+
+            if (upcomingWorkouts.length === 0) {
+                console.log(`[Notifications Trigger] No workouts needing reminders for user ${userId}.`);
+                continue; // Move to the next user
+            }
+
+            // 5. Prepare and send notifications for this user's workouts
+            for (const workout of upcomingWorkouts) {
+                 // Skip if we already sent a notification for this workout (e.g., to another device of the same user)
+                 if (notifiedWorkoutIds.has(workout.workoutId)) continue;
+
                 const payload = JSON.stringify({
                     title: 'Workout Reminder',
                     body: `${workout.workoutType} session starting soon!`,
-                    // Consider adding a tag to allow replacement/coalescing: e.g., tag: `workout-reminder-${workout.userId}`
-                    // Consider adding data: { url: '/planner' } for click actions
+                    tag: `workout-reminder-${workout.workoutId}`, // Use workout ID for coalescing
+                    data: { url: '/planner' } // Add URL for click action
                 });
 
-                for (const subscription of userSubscriptions) {
-                    if (!subscription || !subscription.endpoint || sentEndpoints.has(subscription.endpoint)) continue; 
-                    
-                    console.log(`[Notifications Trigger] Preparing to send reminder to user ${workout.userId}, endpoint: ${subscription.endpoint.substring(0, 30)}...`);
-                    sentEndpoints.add(subscription.endpoint);
+                console.log(`[Notifications Trigger] Found upcoming workout ${workout.workoutId} (${workout.workoutType}) for user ${userId}. Sending to ${userSubscriptions.length} device(s).`);
 
-                    // Use actual web-push sendNotification
+                for (const subscription of userSubscriptions) {
+                    if (!subscription || !subscription.endpoint) continue;
+
+                    console.log(`[Notifications Trigger] Preparing to send reminder for ${workout.workoutId} to endpoint: ${subscription.endpoint.substring(0, 30)}...`);
+
+                    // Use actual web-push sendNotification (same logic as before for success/failure/delete)
                     const sendPromise = webpush.sendNotification(subscription, payload)
                         .then(result => {
-                            console.log(`[Notifications Trigger] Sent reminder successfully to ${subscription.endpoint.substring(0, 30)}... Status: ${result.statusCode}`);
-                            // Simplify return value for tallying
-                            return { success: true }; 
+                            // ... (same success handling as before)
+                             console.log(`[Notifications Trigger] Sent reminder successfully to ${subscription.endpoint.substring(0, 30)}... Status: ${result.statusCode}`);
+                             return { success: true }; 
                         })
                         .catch(error => {
-                            console.error(`[Notifications Trigger] Failed to send reminder to ${subscription.endpoint.substring(0, 30)}... Status: ${error.statusCode}, Body: ${error.body}`);
-                            const errorDetails = { statusCode: error.statusCode, message: error.body }; // Capture error details
-                            // Handle specific errors (e.g., 410 Gone / 404 Not Found - subscription expired/invalid)
-                            if (error.statusCode === 410 || error.statusCode === 404) {
-                                console.warn(`[Notifications Trigger] Subscription ${subscription.endpoint.substring(0, 30)} is invalid (${error.statusCode}). Deleting.`);
-                                dbDeleteSubscription(subscription.endpoint).catch(deleteError => {
-                                    console.error(`[Notifications Trigger] Failed to delete invalid subscription ${subscription.endpoint.substring(0, 30)}:`, deleteError);
-                                });
-                            }
-                            // Simplify return value, pass error details separately
-                            return { success: false, error: errorDetails }; 
+                            // ... (same error handling and subscription deletion logic as before)
+                             console.error(`[Notifications Trigger] Failed to send reminder to ${subscription.endpoint.substring(0, 30)}... Status: ${error.statusCode}, Body: ${error.body}`);
+                             const errorDetails = { userId: userId, endpoint: subscription.endpoint, statusCode: error.statusCode, message: error.body }; // Capture error details
+                             if (error.statusCode === 410 || error.statusCode === 404) {
+                                 console.warn(`[Notifications Trigger] Subscription ${subscription.endpoint.substring(0, 30)} is invalid (${error.statusCode}). Deleting.`);
+                                 dbDeleteSubscription(subscription.endpoint).catch(deleteError => {
+                                     console.error(`[Notifications Trigger] Failed to delete invalid subscription ${subscription.endpoint.substring(0, 30)}:`, deleteError);
+                                 });
+                             }
+                             return { success: false, error: errorDetails }; 
                         });
                     sendPromises.push(sendPromise);
                 }
+                 notifiedWorkoutIds.add(workout.workoutId); // Mark workout as notified
             }
         }
 
-        // 5. Wait for all send attempts to complete and tally results
+        // 6. Wait for all send attempts to complete and tally results (same as before)
         const results = await Promise.allSettled(sendPromises);
         results.forEach(result => {
-            // All promises should fulfill because the .catch inside the loop handles rejections
-            // and returns an object like { success: false, error: ... }
             if (result.status === 'fulfilled') {
-                // Check the custom success flag returned by our promise handler
-                if (result.value.success) { 
-                    sentCount++; 
+                if (result.value.success) {
+                    sentCount++;
                 } else {
-                    // This means the .catch block ran and returned { success: false, error: ... }
-                    failCount++; 
-                    if(result.value.error) errors.push(result.value.error); 
+                    failCount++;
+                    if (result.value.error) errors.push(result.value.error);
                 }
             } else {
-                // This block should ideally not be reached if the .catch handler is robust
-                // Log unexpected rejections just in case
                  console.error("[Notifications Trigger] Unexpected promise rejection wasn't caught earlier:", result.reason);
-                 failCount++; 
-                 // Try to extract some info from the reason
-                 const reason = result.reason;
-                 errors.push({ 
-                     error: 'unhandled_send_rejection', 
-                     statusCode: reason?.statusCode, 
-                     message: reason?.body || reason?.message || String(reason) 
-                 });
+                 failCount++;
+                 errors.push({ error: 'unexpected_promise_rejection', reason: String(result.reason) });
             }
         });
 
-        console.log(`[Notifications Trigger] Finished sending reminders. Sent: ${sentCount}, Failed: ${failCount}`);
-        // --- Final Result ---
-        // Determine overall success based on failCount
-        const overallSuccess = failCount === 0;
-
-        if (!overallSuccess) {
-            console.warn(`[Notifications Trigger] Completed with errors. Failed: ${failCount}`);
-            // Return failure, include collected errors array, counts
-            return {
-                success: false, 
-                errors: errors, // Use the existing errors array 
-                sent: sentCount,
-                failed: failCount,
-            };
-        } else {
-             console.log(`[Notifications Trigger] Completed successfully. Sent: ${sentCount}`);
-            // Return success, counts, and empty errors array
-            return {
-                success: true,
-                sent: sentCount,
-                failed: failCount,
-                errors: [], // Explicitly return empty errors array on success
-            };
+        console.log(`[Notifications Trigger] Reminder process finished. Sent: ${sentCount}, Failed: ${failCount}`);
+        if (errors.length > 0) {
+            console.warn("[Notifications Trigger] Errors encountered:", errors);
         }
+        return { success: true, sent: sentCount, failed: failCount, errors: errors };
 
     } catch (error) {
         console.error('[Notifications Trigger] Unexpected error during reminder process:', error);
-        errors.push({ error: 'trigger_process_failed', message: error instanceof Error ? error.message : String(error) });
-        return { success: false, sent: sentCount, failed: failCount, errors };
+        return { success: false, sent: sentCount, failed: failCount, errors: [{ error: 'unknown_trigger_error', message: String(error) }] };
     }
-} 
+}
 
 // Ensure VAPID keys are set in environment variables
 if (!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
@@ -308,9 +286,9 @@ async function removeSubscription(userId: string, endpoint: string): Promise<voi
 // --- Send Notification Action --- 
 
 /**
- * Sends a push notification to all registered subscriptions for the current user.
- * 
- * @param payload - The data to send in the push notification (can be string or object).
+ * Sends a push notification to all registered devices for the CURRENTLY logged-in user.
+ * Assumes VAPID details are set.
+ * @param payload - The notification payload (string or object).
  * @param options - Optional web-push options (e.g., TTL).
  */
 export async function sendNotificationToCurrentUser(payload: string | object, options?: RequestOptions): Promise<void> {

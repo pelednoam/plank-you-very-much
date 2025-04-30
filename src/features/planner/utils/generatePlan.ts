@@ -113,17 +113,23 @@ export const generateWeeklyPlan = (
 
         // 2. Adjust for Last Week's Completion Rate (Progressive Overload/Reduction)
         adjustedDuration = Math.round(adjustedDuration * increaseDurationFactor * decreaseDurationFactor);
-        
-        // Ensure duration doesn't go below a minimum (e.g., 5 mins) or become excessive
-        adjustedDuration = Math.max(5, adjustedDuration); 
+
+        // 3. Specific Adjustment for Back Issues (Reduce Climb Intensity)
+        if (userProfile?.backIssues && workoutType === 'CLIMB') {
+            console.log(`[generatePlan] Back issues detected, reducing duration for CLIMB on ${currentDate}`);
+            adjustedDuration = Math.round(adjustedDuration * 0.8); // Reduce duration by 20%
+        }
+
+        // 4. Ensure duration doesn't go below a minimum (e.g., 5 mins) or become excessive
+        adjustedDuration = Math.max(5, adjustedDuration); // Ensure minimum duration
         // Could add a Math.min cap as well if needed
 
         const workout: Workout = {
             id: uuidv4(),
             type: workoutType,
-            plannedAt: currentDate, 
-            durationMin: adjustedDuration, // Use the adapted duration
-            completedAt: undefined, 
+            plannedAt: currentDate,
+            durationMin: adjustedDuration, // Use the final adapted duration
+            completedAt: undefined,
             notes: undefined,
             performanceRating: undefined,
         };

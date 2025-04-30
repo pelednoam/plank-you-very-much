@@ -734,12 +734,15 @@ const IntegrationSettings = () => {
                 <FitbitConnectButton />
             )}
 
-            {/* Wyze Scale Section (Placeholder UI) */}
-             <div className="p-4 border rounded-md space-y-3 opacity-50 cursor-not-allowed">
-                 <h4 className="font-semibold">Wyze Scale (via Health Connect/HealthKit)</h4>
-                 <p className="text-sm text-gray-500">Syncs automatically if connected to Google Health Connect (Android) or Apple HealthKit (iOS).</p>
-                 {/* <CsvImportButton onImport={(data) => console.log("Imported Wyze CSV:", data)} title="Import Wyze Scale CSV" /> */} 
-                  <Button disabled size="sm" variant="outline">Import Wyze Scale CSV (Coming Soon)</Button>
+            {/* Wyze Scale Section */}
+             <div className="p-4 border rounded-md space-y-3">
+                 <h4 className="font-semibold">Wyze Scale Import</h4>
+                 <p className="text-sm text-gray-600">Import historical weight and body fat data from a Wyze Scale CSV export.</p>
+                 <CsvImportButton 
+                     source="WYZE" 
+                     buttonText="Import Wyze Scale CSV"
+                 />
+                 <p className="text-xs text-muted-foreground">Expected format: date,weight,bodyFatPct,muscleMassKg</p>
              </div>
 
             {/* NFC Section */}
