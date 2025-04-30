@@ -90,6 +90,16 @@ describe('Offline Sync Manager', () => {
     });
 
     describe('processOfflineQueue', () => {
+        beforeEach(() => {
+            // Use fake timers for retry delay tests
+            jest.useFakeTimers();
+        });
+
+        afterEach(() => {
+            // Restore real timers
+            jest.useRealTimers();
+        });
+
         it('should do nothing if the queue is empty', async () => {
             mockPendingActions = []; 
             // No need to update mock return value manually anymore
@@ -171,29 +181,123 @@ describe('Offline Sync Manager', () => {
             expect(mockPendingActions.length).toBe(0);
         });
 
-        it('should schedule retry if server action returns success: false', async () => {
-            const action: QueuedAction = {
-                id: 'action-w-fail',
-                type: 'planner/markComplete',
-                payload: { workoutId: 'w-fail', isComplete: true },
-                timestamp: new Date().toISOString(),
-            };
+        it('should schedule retry and update metadata on first server action failure', async () => {
+            const action: QueuedAction = { id: 'retry-1', type: 'planner/markComplete', payload: { workoutId: 'w-retry', isComplete: true }, timestamp: 'ts' };
             mockPendingActions = [action];
-            mockedUpdateWorkout.mockResolvedValueOnce({ success: false, error: 'Server Busy' });
+            mockedUpdateWorkout.mockResolvedValueOnce({ success: false, error: 'Temporary Glitch' });
 
             await processOfflineQueue();
 
             expect(mockedUpdateWorkout).toHaveBeenCalledTimes(1);
             expect(mockRemoveAction).not.toHaveBeenCalled();
-            expect(mockUpdateActionMetadata).toHaveBeenCalledWith('action-w-fail', expect.objectContaining({
+            expect(mockUpdateActionMetadata).toHaveBeenCalledWith('retry-1', expect.objectContaining({
                 retryCount: 1,
                 failed: false,
-                error: 'Server Busy', // Error message from server action
+                error: 'Temporary Glitch',
                 lastAttemptTimestamp: expect.any(Number),
             }));
-            expect(mockPendingActions.length).toBe(1);
+            expect(mockPendingActions.length).toBe(1); // Action still in queue
         });
-        
+
+        it('should successfully process on retry after initial failure', async () => {
+            const action: QueuedAction = {
+                id: 'retry-success',
+                type: 'nutrition/addMeal',
+                payload: { name: 'Retry Meal' },
+                timestamp: 'ts',
+                metadata: { retryCount: 0, lastAttemptTimestamp: 0 } // Initial state
+            };
+            mockPendingActions = [action];
+            
+            // Fail first time
+            mockedAddMeal.mockResolvedValueOnce({ success: false, error: 'First Fail' });
+            await processOfflineQueue();
+
+            // Verify retry state
+            expect(mockRemoveAction).not.toHaveBeenCalled();
+            expect(mockUpdateActionMetadata).toHaveBeenCalledWith('retry-success', expect.objectContaining({ retryCount: 1, error: 'First Fail' }));
+            const actionAfterFail = mockPendingActions.find(a => a.id === 'retry-success');
+            expect(actionAfterFail?.metadata?.retryCount).toBe(1);
+
+            // Succeed second time
+            mockedAddMeal.mockResolvedValueOnce({ success: true, mealId: 'new-id' });
+            
+            // Advance time past retry delay
+            jest.advanceTimersByTime(1000 * 11); // 11 seconds
+            
+            await processOfflineQueue();
+
+            // Verify success on retry
+            expect(mockedAddMeal).toHaveBeenCalledTimes(2);
+            expect(mockRemoveAction).toHaveBeenCalledWith('retry-success');
+            expect(mockPendingActions.length).toBe(0); // Action removed
+        });
+
+        it('should mark action as permanently failed after MAX_RETRIES', async () => {
+            const MAX_RETRIES = 3; // Assuming this is defined in the module or test
+            const action: QueuedAction = {
+                id: 'fail-perm',
+                type: 'metrics/addMetric',
+                payload: { date: '2024-08-01', weightKg: 80 },
+                timestamp: 'ts',
+                metadata: { retryCount: MAX_RETRIES, lastAttemptTimestamp: 0 } // Already at max retries
+            };
+            mockPendingActions = [action];
+            mockedAddMetric.mockResolvedValue({ success: false, error: 'Persistent Error' }); // Fail again
+
+            await processOfflineQueue();
+
+            expect(mockedAddMetric).toHaveBeenCalledTimes(1);
+            expect(mockRemoveAction).not.toHaveBeenCalled();
+            expect(mockUpdateActionMetadata).toHaveBeenCalledWith('fail-perm', expect.objectContaining({
+                retryCount: MAX_RETRIES + 1,
+                failed: true, // Should be marked as failed
+                error: 'Persistent Error',
+                lastAttemptTimestamp: expect.any(Number),
+            }));
+            expect(mockPendingActions.length).toBe(1); // Still in queue but failed
+            expect(mockPendingActions[0].metadata?.failed).toBe(true);
+
+            // Try processing again - should be skipped
+            mockUpdateActionMetadata.mockClear(); // Clear mock calls
+            mockedAddMetric.mockClear();
+            await processOfflineQueue();
+            expect(mockedAddMetric).not.toHaveBeenCalled();
+            expect(mockUpdateActionMetadata).not.toHaveBeenCalled();
+        });
+
+        it('should respect RETRY_DELAY_MS', async () => {
+            const RETRY_DELAY_MS = 1000 * 10; // 10 seconds
+            const action: QueuedAction = {
+                id: 'retry-delay',
+                type: 'planner/markComplete',
+                payload: { workoutId: 'w-delay', isComplete: true },
+                timestamp: 'ts',
+                // Simulate last attempt 5 seconds ago
+                metadata: { retryCount: 1, lastAttemptTimestamp: Date.now() - 5000, failed: false }
+            };
+            mockPendingActions = [action];
+            mockedUpdateWorkout.mockResolvedValue({ success: true }); // Assume it would succeed
+
+            await processOfflineQueue();
+
+            // Should not have attempted sync because delay hasn't passed
+            expect(mockedUpdateWorkout).not.toHaveBeenCalled();
+            expect(mockRemoveAction).not.toHaveBeenCalled();
+            expect(mockUpdateActionMetadata).not.toHaveBeenCalled();
+            expect(mockPendingActions.length).toBe(1); // Action remains
+
+            // Advance time past the delay
+            jest.advanceTimersByTime(RETRY_DELAY_MS);
+
+            await processOfflineQueue();
+
+            // Now it should have processed and succeeded
+            expect(mockedUpdateWorkout).toHaveBeenCalledTimes(1);
+            expect(mockRemoveAction).toHaveBeenCalledWith('retry-delay');
+            expect(mockPendingActions.length).toBe(0);
+        });
+
         it('should throw error and schedule retry if payload is invalid for action type', async () => {
             const action: QueuedAction = {
                 id: 'action-bad-payload',
@@ -239,64 +343,9 @@ describe('Offline Sync Manager', () => {
             expect(mockPendingActions[0].metadata?.failed).toBe(false);
             expect(mockPendingActions[0].metadata?.retryCount).toBe(1);
         });
-        
-        it('should eventually mark an action as permanently failed after MAX_RETRIES', async () => {
-             const action: QueuedAction = {
-                id: 'action-fail',
-                type: 'unknown/actionType' as any, 
-                payload: {},
-                timestamp: new Date().toISOString(),
-                metadata: { retryCount: 3 } // Start at retry 3
-            };
-            mockPendingActions = [action]; 
-            // No need to update mock return value manually anymore
-            
-            await processOfflineQueue(); // This is the 4th attempt
-
-            expect(mockRemoveAction).not.toHaveBeenCalled();
-            expect(mockUpdateActionMetadata).toHaveBeenCalledTimes(1);
-            expect(mockUpdateActionMetadata).toHaveBeenCalledWith('action-fail', expect.objectContaining({ 
-                retryCount: 4, 
-                failed: true, 
-                error: 'Unknown Action Type: unknown/actionType', 
-                lastAttemptTimestamp: expect.any(Number),
-            }));
-             expect(mockPendingActions.length).toBe(1);
-             expect(mockPendingActions[0].metadata?.failed).toBe(true); // Check state IS updated
-             expect(mockPendingActions[0].metadata?.retryCount).toBe(4);
-             
-             // Run again - should be skipped because mockPendingActions[0].metadata.failed is now true
-             mockUpdateActionMetadata.mockClear(); 
-             await processOfflineQueue();
-             expect(mockUpdateActionMetadata).not.toHaveBeenCalled(); // Should have been skipped
-        });
-        
-        it('should skip retry if RETRY_DELAY has not passed', async () => {
-            const mockNow = Date.now();
-            const lastAttempt = mockNow - 5000; // 5 seconds ago
-             const action: QueuedAction = {
-                id: 'action-delay',
-                type: 'unknown/actionType' as any, 
-                payload: {},
-                timestamp: new Date().toISOString(),
-                metadata: { retryCount: 1, lastAttemptTimestamp: lastAttempt } 
-            };
-            mockPendingActions = [action]; 
-            // No need to update mock return value manually anymore
-            
-            jest.spyOn(Date, 'now').mockReturnValue(mockNow);
-            await processOfflineQueue();
-            expect(mockRemoveAction).not.toHaveBeenCalled();
-            expect(mockUpdateActionMetadata).not.toHaveBeenCalled();
-            jest.spyOn(Date, 'now').mockRestore();
-        });
     });
 
-    // Note: Testing initializeSyncManager correctly requires handling the async nature
-    // and potentially mocking the triggerSync dependency more robustly.
-    // describe('initializeSyncManager', () => {
-        // Test online/offline listeners setup
-        // Test initial trigger if online
-    // });
-
+    describe('initializeSyncManager', () => {
+        // ... tests for initializeSyncManager ...
+    });
 }); 

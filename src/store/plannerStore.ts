@@ -16,12 +16,12 @@ dayjs.extend(isoWeek); // Extend dayjs with isoWeek plugin
 // Define the state shape including actions
 interface PlannerState {
     plans: Record<string, WeeklyPlan>; // Store plans keyed by start date (YYYY-MM-DD)
-    getPlanForDate: (date: string) => WeeklyPlan | null; // Helper to get plan containing a date
-    generatePlanForWeek: (startDate: string, userProfile?: UserProfile | null) => WeeklyPlan; // Return the generated plan
-    // Removed setPlan as direct manipulation is less safe
-    // setPlan: (plan: WeeklyPlan | null) => void;
+    getPlanForDate: (date: string) => WeeklyPlan | null; // Fix: Return type is WeeklyPlan | null
+    setPlan: (plan: WeeklyPlan) => void; // Allow manual setting/override
     markWorkoutComplete: (workoutId: string, completionData: Partial<Workout>) => Promise<void>;
+    generatePlanForWeek: (startDate: string, userProfile?: UserProfile | null) => void; // Action to generate plan for a specific week
     _updateWorkoutInPlan: (workoutId: string, updateData: Partial<Workout>) => void;
+    _hydrateInitialPlan: () => void; // Action for initial hydration logic
 }
 
 // Define the shape of the state to be persisted
@@ -37,36 +37,42 @@ export const usePlannerStore = create<PlannerState>()(
         (set, get) => ({
             plans: {}, // Initialize with empty object
 
-            generatePlanForWeek: (startDate, userProfile?) => {
+            generatePlanForWeek: (startDate: string, userProfile?: UserProfile | null) => {
                 console.log(`Attempting to generate plan for week starting: ${startDate}`);
-                // Ensure startDate is a Monday
                 let effectiveStartDate = startDate;
-                if (dayjs(startDate).isoWeekday() !== 1) { // Use isoWeekday for Monday=1
+
+                // Ensure startDate is a Monday
+                dayjs.extend(isoWeek); // Ensure plugin is loaded
+                if (dayjs(startDate).isoWeekday() !== 1) {
                     effectiveStartDate = dayjs(startDate).startOf('isoWeek').format('YYYY-MM-DD');
                     console.warn(`Planner Store: Requested start date ${startDate} was not a Monday. Adjusted to ${effectiveStartDate}.`);
                 }
 
                 // --- Get Previous Week's Plan --- 
-                const previousMonday = dayjs(effectiveStartDate).subtract(1, 'week').format('YYYY-MM-DD');
-                const previousPlan = get().plans[previousMonday] || null;
-                if(previousPlan) {
-                     console.log("Planner Store: Found previous week's plan for adaptation:", previousPlan.startDate);
+                const previousWeekStartDate = dayjs(effectiveStartDate).subtract(1, 'week').format('YYYY-MM-DD');
+                const previousWeekPlan = get().plans[previousWeekStartDate] || null;
+                if (previousWeekPlan) {
+                     console.log(`Planner Store: Found previous week's plan for adaptation: ${previousWeekStartDate}`);
                 } else {
-                     console.log(`Planner Store: No previous plan found for ${previousMonday} to adapt from.`);
+                     console.log(`Planner Store: No previous plan found for ${previousWeekStartDate} to adapt from.`);
                 }
 
-                // --- Generate Plan using utility --- 
-                const newPlan = generateWeeklyPlan(effectiveStartDate, userProfile, previousPlan);
-                
-                // --- Update State --- 
-                set(state => ({
-                    plans: {
-                        ...state.plans,
-                        [effectiveStartDate]: newPlan
-                    }
-                }));
+                // --- Generate Plan --- 
+                // TODO: Fetch actual user availability data here when implemented
+                const busyDaysPlaceholder = null; // Using null for now
+
+                const newPlan = generateWeeklyPlan(
+                    effectiveStartDate,
+                    userProfile, 
+                    previousWeekPlan,
+                    busyDaysPlaceholder // Pass placeholder availability
+                );
+
+                set((state) => {
+                    const updatedPlans = { ...state.plans, [effectiveStartDate]: newPlan };
+                    return { plans: updatedPlans };
+                });
                 console.log("Planner Store: New plan generated and set:", newPlan);
-                return newPlan; // Return the generated plan
             },
 
             getPlanForDate: (date: string) => {
@@ -82,15 +88,15 @@ export const usePlannerStore = create<PlannerState>()(
                 return null;
             },
 
-            // setPlan: (plan: WeeklyPlan | null) => {
-            //      console.log("Planner Store: Manually setting plan:", plan);
-            //      if (plan && plan.startDate) {
-            //         set(state => ({ plans: { ...state.plans, [plan.startDate]: plan } }));
-            //      } else {
-            //         // Handle clearing? Perhaps remove a plan by date?
-            //         console.warn("Planner Store: setPlan called with null or invalid plan.")
-            //      }
-            // },
+            setPlan: (plan: WeeklyPlan) => {
+                console.log("Planner Store: Manually setting plan:", plan);
+                if (plan && plan.startDate) {
+                    set(state => ({ plans: { ...state.plans, [plan.startDate]: plan } }));
+                } else {
+                    // Handle clearing? Perhaps remove a plan by date?
+                    console.warn("Planner Store: setPlan called with null or invalid plan.")
+                }
+            },
 
             _updateWorkoutInPlan: (workoutId, updateData) => {
                 set(state => {
@@ -153,6 +159,10 @@ export const usePlannerStore = create<PlannerState>()(
                      console.log(`[Planner Store] Workout ${workoutId} completion queued for offline sync.`);
                 }
             },
+
+            _hydrateInitialPlan: () => {
+                // Implementation of _hydrateInitialPlan
+            },
         }),
         {
             name: 'planner-storage',
@@ -175,10 +185,16 @@ export const initializePlannerStore = (userProfile?: UserProfile | null, forceRe
 
     if (!existingPlanForCurrentWeek || forceRegenerate) {
         console.log(`Planner Store Initializer: ${forceRegenerate ? 'Forcing regeneration' : 'No plan found for current week'}. Generating plan for week starting: ${currentMonday}`);
-        // Generate and update state directly. 
-        // No need for setTimeout, Zustand handles state updates properly.
-        const newPlan = generatePlanForWeek(currentMonday, userProfile);
-        return newPlan;
+        
+        // Call generatePlanForWeek to update the state
+        generatePlanForWeek(currentMonday, userProfile);
+        
+        // After generation, get the newly created plan from the state
+        // Need to access state again *after* the update has been applied
+        // Note: This assumes generatePlanForWeek updates state synchronously within the test/call context.
+        // If it were truly async, this might be unreliable without a state listener.
+        const newlyGeneratedPlan = usePlannerStore.getState().plans[currentMonday] || null;
+        return newlyGeneratedPlan; 
     } else {
         console.log("Planner Store Initializer: Found existing plan for current week:", existingPlanForCurrentWeek);
         return existingPlanForCurrentWeek;

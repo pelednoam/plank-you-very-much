@@ -1,7 +1,15 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { UserProfile, NotificationPreferences } from '@/types';
+import type { UserProfile, NotificationPreferences, BodyMetrics } from '@/types';
 import { createIdbStorage } from '@/lib/idbStorage';
+import { useMetricsStore } from '@/store/metricsStore'; // Import metrics store
+import { 
+    calculateCalorieTarget,
+    calculateProteinTarget,
+    calculateBMR, 
+    calculateTDEE,
+    calculateLBM
+} from '@/lib/calculationUtils'; // Import calculation utils
 
 // Add completedTutorials to UserProfile type if not already present in types/index.ts
 // (Assuming UserProfile might eventually look like this)
@@ -50,18 +58,23 @@ export const defaultProfile: UserProfile = {
       syncStatus: true,
   },
   // Add other fields with defaults if necessary based on UserProfile type
-  // dob: undefined, 
-  // sex: undefined,
-  // heightCm: undefined,
-  // activityLevel: undefined,
-  // targetBodyFatPct: undefined,
-  // targetDate: undefined,
-  // backIssues: undefined,
-  // equipment: undefined,
-  // fitbitUserId: undefined,
+  dob: undefined, 
+  sex: undefined,
+  heightCm: undefined,
+  activityLevel: undefined,
+  targetBodyFatPct: undefined,
+  targetDate: undefined,
+  backIssues: false,
+  equipment: [],
+  fitbitUserId: undefined,
   fitbitAccessToken: undefined,
   fitbitExpiresAt: undefined,
   lastSyncedCaloriesOut: undefined,
+  // Add new target fields with undefined/null defaults
+  calculatedTDEE: undefined,
+  calculatedLBM: undefined,
+  calorieTarget: undefined,
+  proteinTarget: undefined,
 };
 
 // Initial state for the store slice
@@ -140,20 +153,42 @@ export const useUserProfileStore = create<UserProfileState>()(
           };
       }),
 
-      // New action to update fitness-related data
+      // New action to update fitness-related data and recalculate targets
        updateFitnessData: (fitnessData) => set((state) => {
            if (!state.profile) return {};
-           // Define which keys this action can update
-           const allowedFitnessUpdates: Partial<UserProfile> = {};
+
+           // 1. Update the profile with the incoming fitness data (e.g., lastSyncedCaloriesOut)
+           const updatedProfileIntermediate = { ...state.profile };
            if (fitnessData.lastSyncedCaloriesOut !== undefined) {
-               allowedFitnessUpdates.lastSyncedCaloriesOut = fitnessData.lastSyncedCaloriesOut;
+               updatedProfileIntermediate.lastSyncedCaloriesOut = fitnessData.lastSyncedCaloriesOut;
            }
            // Add other fields from FitnessData interface here if needed
-           
+
+           // 2. Fetch latest metrics (needed for calculations)
+           // IMPORTANT: Accessing another store inside set() is generally discouraged
+           // due to potential loops, but necessary here for recalculation.
+           // Consider alternative patterns if this causes issues.
+           const latestMetric: BodyMetrics | undefined = useMetricsStore.getState().getLatestMetric();
+
+           // 3. Recalculate related fitness data based on the updated profile and latest metrics
+           const bmr = calculateBMR(updatedProfileIntermediate, latestMetric ?? null);
+           const tdee = calculateTDEE(bmr, updatedProfileIntermediate.activityLevel);
+           const lbm = calculateLBM(latestMetric?.weightKg, latestMetric?.bodyFatPct);
+
+           // 4. Recalculate targets using the most up-to-date info
+           // Pass the *intermediate* profile which has the latest synced calories
+           const calorieTarget = calculateCalorieTarget(updatedProfileIntermediate, latestMetric ?? null);
+           const proteinTarget = calculateProteinTarget(latestMetric ?? null);
+
+           // 5. Return the final updated profile state
            return {
                profile: {
-                   ...state.profile,
-                   ...allowedFitnessUpdates,
+                   ...updatedProfileIntermediate, // Contains updated lastSyncedCaloriesOut
+                   calculatedBMR: bmr ?? undefined, // Store calculated values
+                   calculatedTDEE: tdee ?? undefined,
+                   calculatedLBM: lbm ?? undefined,
+                   calorieTarget: calorieTarget ?? undefined, // Store updated targets
+                   proteinTarget: proteinTarget ?? undefined,
                }
            };
        }),

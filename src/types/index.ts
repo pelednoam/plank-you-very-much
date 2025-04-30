@@ -6,6 +6,7 @@ export interface BodyMetrics {
   bodyFatPct?: number; // Optional based on scale/source capabilities
   muscleMassKg?: number; // Optional based on scale capabilities
   visceralRating?: number; // Optional based on scale capabilities
+  notes?: string; // Optional field for notes or flags like failure simulation
   source: 'MANUAL' | 'WYZE' | 'FITBIT'; // Added based on Spec 8F/7
 }
 
@@ -114,28 +115,41 @@ export interface NotificationPreferences {
 }
 
 export interface UserProfile {
-  id?: string; // Optional: Will be assigned by the system (e.g., NextAuth)
-  name: string;
-  email?: string; // Added by NextAuth
-  image?: string; // Added by NextAuth
-  dob?: string; // ISO date string (e.g., "1980-01-01")
+  id?: string; // Optional: If using a DB later
+  email?: string; // From Auth provider
+  name?: string; // From Auth provider or user input
+  image?: string; // From Auth provider
+
+  // Onboarding Data
+  dob?: string; // ISO date (YYYY-MM-DD)
   sex?: 'MALE' | 'FEMALE' | 'OTHER' | 'PREFER_NOT_SAY';
   heightCm?: number;
+  activityLevel?: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
   lactoseSensitive: boolean;
-  activityLevel?: ActivityLevel;
+  backIssues: boolean;
+  equipment?: string[]; // Reverted to string array to fix lint error
+
+  // Goal Data
   targetBodyFatPct?: number;
-  targetDate?: string; // ISO date string
-  backIssues?: boolean;
-  equipment?: string[]; // e.g., ['DUMBBELLS', 'PULLUP_BAR']
-  
-  // Internal/Managed fields
+  targetDate?: string; // ISO date (YYYY-MM-DD)
+
+  // Calculated & Synced Fitness Data (Stored for convenience/consistency)
+  calculatedBMR?: number;
+  calculatedTDEE?: number;
+  calculatedLBM?: number; // Lean Body Mass
+  calorieTarget?: number; // Automatically adjusted target based on TDEE/Sync
+  proteinTarget?: number; // Automatically adjusted target based on LBM/Weight
+  lastSyncedCaloriesOut?: number; // From Fitbit sync
+
+  // Integration Data
+  fitbitUserId?: string;
+  fitbitAccessToken?: string; // Should be handled securely server-side if possible
+  fitbitExpiresAt?: number; // Timestamp (seconds since epoch) when token expires
+
+  // App State
   completedOnboarding: boolean;
   notificationPrefs?: NotificationPreferences;
-  completedTutorials?: string[]; 
-  fitbitUserId?: string;
-  fitbitAccessToken?: string;
-  fitbitExpiresAt?: number; // Unix timestamp (seconds)
-  lastSyncedCaloriesOut?: number; // Store last synced TDEE estimate from Fitbit
+  completedTutorials?: string[];
 }
 
 // --- Planner Types --- Moved from src/features/planner/types.ts

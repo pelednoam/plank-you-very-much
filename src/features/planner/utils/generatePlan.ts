@@ -14,10 +14,10 @@ function shuffleArray<T>(array: T[]): T[] {
 // Define a basic weekly schedule template
 // Spec: ≥2 climb, ≥2 swim, ≥2 core, ≤1 rest
 // Default: 2 Climb, 2 Swim, 2 Core, 1 Rest = 7 days
-const defaultWeeklyTemplate: WorkoutType[] = ['CLIMB', 'SWIM', 'CORE', 'CLIMB', 'SWIM', 'CORE', 'REST'];
+export const defaultWeeklyTemplate: WorkoutType[] = ['CLIMB', 'SWIM', 'CORE', 'CLIMB', 'SWIM', 'CORE', 'REST'];
 // Add a mobility workout type if not already present in WorkoutType
 // Assuming WorkoutType might be: 'CLIMB' | 'SWIM' | 'CORE' | 'STRENGTH' | 'REST' | 'MOBILITY';
-const backCareTemplate: WorkoutType[] = ['CLIMB', 'SWIM', 'MOBILITY', 'CLIMB', 'SWIM', 'CORE', 'REST']; // Replace one CORE with MOBILITY
+export const backCareTemplate: WorkoutType[] = ['CLIMB', 'SWIM', 'MOBILITY', 'CLIMB', 'SWIM', 'CORE', 'REST']; // Replace one CORE with MOBILITY
 
 // Define base durations
 export const BASE_DURATIONS: Record<WorkoutType, number> = {
@@ -38,12 +38,16 @@ export const isFatLossGoalActive = (profile?: UserProfile | null): boolean => {
            dayjs(profile.targetDate).isAfter(dayjs());
 };
 
+// Placeholder type for availability
+type BusyDays = number[]; // Array of day indices (0=Mon, 1=Tue, ..., 6=Sun) considered busy
+
 // Generate a weekly plan starting from a given Monday
-// Now accepts optional user profile data
+// Now accepts optional user profile data and availability
 export const generateWeeklyPlan = (
     startDate: string, // Should be 'YYYY-MM-DD' format of a Monday
     userProfile?: UserProfile | null,
-    previousWeekPlan?: WeeklyPlan | null // Add previous week's plan
+    previousWeekPlan?: WeeklyPlan | null,
+    busyDays?: BusyDays | null // Add availability placeholder
 ): WeeklyPlan => {
     const start = dayjs(startDate);
     const endDate = start.add(6, 'days').format('YYYY-MM-DD');
@@ -82,20 +86,54 @@ export const generateWeeklyPlan = (
     // Example: If < 50% completion rate or multiple CORE workouts missed, maybe force back care
     // Only apply this rule if we have a completion rate to evaluate
     if (completionRate !== null && (completionRate < 0.5 || coreWorkoutsMissedLastWeek >= 2)) {
+        // TODO: Refine this rule based on backPainLevel if available (e.g., only switch if pain is also low/moderate)
         console.log('[generatePlan] Low completion or missed core last week, prioritizing back care/rest.');
-        // Simple approach: Use backCareTemplate or even consider adding an extra REST/MOBILITY day
-        // For now, just switch to backCareTemplate if not already selected
         if (!userProfile?.backIssues) {
              templateToUse = backCareTemplate;
         }
-        // More complex logic could replace a missed type with REST/MOBILITY
     }
 
-    const shuffledTypes = shuffleArray([...templateToUse]);
+    let shuffledTypes = shuffleArray([...templateToUse]);
+
+    // --- Availability Placeholder Logic (Simple Swap Attempt) ---
+    if (busyDays && busyDays.length > 0) {
+        console.log(`[generatePlan] Attempting to adjust plan for busy days: ${busyDays.join(', ')}`);
+        const adjustedSchedule = [...shuffledTypes]; // Work on a copy
+        const shortWorkouts: WorkoutType[] = ['CORE', 'MOBILITY', 'REST'];
+
+        busyDays.forEach(busyDayIndex => {
+            if (busyDayIndex >= 0 && busyDayIndex < 7) {
+                const currentWorkout = adjustedSchedule[busyDayIndex];
+                // If the busy day has a long workout assigned...
+                if (!shortWorkouts.includes(currentWorkout)) {
+                    // Look for a free day later in the week with a short workout
+                    let swapped = false;
+                    for (let freeDayIndex = busyDayIndex + 1; freeDayIndex < 7; freeDayIndex++) {
+                        if (!busyDays.includes(freeDayIndex)) {
+                            const potentialSwapWorkout = adjustedSchedule[freeDayIndex];
+                            if (shortWorkouts.includes(potentialSwapWorkout)) {
+                                console.log(`[generatePlan] Swapping busy day ${busyDayIndex} (${currentWorkout}) with free day ${freeDayIndex} (${potentialSwapWorkout})`);
+                                // Swap them
+                                [adjustedSchedule[busyDayIndex], adjustedSchedule[freeDayIndex]] = 
+                                    [adjustedSchedule[freeDayIndex], adjustedSchedule[busyDayIndex]];
+                                swapped = true;
+                                break; // Stop after first successful swap for this busy day
+                            }
+                        }
+                    }
+                    // If no swap possible, maybe just log it for now
+                    if (!swapped) {
+                         console.log(`[generatePlan] Could not find suitable swap for long workout (${currentWorkout}) on busy day ${busyDayIndex}`);
+                    }
+                }
+            }
+        });
+        shuffledTypes = adjustedSchedule; // Use the adjusted schedule
+    }
+    // --- End Availability Logic ---
 
     // --- Calculate Durations with Adaptation --- 
     const fatLossActive = isFatLossGoalActive(userProfile);
-    // Default factors to 1.0 if completionRate is null (no previous plan)
     const increaseDurationFactor = completionRate !== null && completionRate >= 0.85 ? 1.1 : 1.0; 
     const decreaseDurationFactor = completionRate !== null && completionRate < 0.5 ? 0.9 : 1.0; 
 
@@ -115,6 +153,9 @@ export const generateWeeklyPlan = (
         adjustedDuration = Math.round(adjustedDuration * increaseDurationFactor * decreaseDurationFactor);
 
         // 3. Specific Adjustment for Back Issues (Reduce Climb Intensity)
+        // TODO: Enhance this based on backPainLevel if available.
+        // E.g., could have different reduction factors (0.9, 0.8, 0.7) based on pain level.
+        // Could also potentially modify *type* (e.g., force REST) if pain is very high.
         if (userProfile?.backIssues && workoutType === 'CLIMB') {
             console.log(`[generatePlan] Back issues detected, reducing duration for CLIMB on ${currentDate}`);
             adjustedDuration = Math.round(adjustedDuration * 0.8); // Reduce duration by 20%

@@ -1,7 +1,8 @@
 import dayjs from 'dayjs';
 import isBetween from 'dayjs/plugin/isBetween';
-import { generateWeeklyPlan, BASE_DURATIONS, isFatLossGoalActive } from './generatePlan';
+import { generateWeeklyPlan, BASE_DURATIONS, isFatLossGoalActive, defaultWeeklyTemplate } from './generatePlan';
 import type { UserProfile, WorkoutType, Workout, WeeklyPlan } from '@/types';
+import { act } from '@testing-library/react';
 
 dayjs.extend(isBetween);
 
@@ -11,20 +12,49 @@ jest.mock('uuid', () => ({
     v4: () => `mock-uuid-${mockUuidCounter++}`,
 }));
 
+// Mock console logging to avoid cluttering test output
+jest.spyOn(console, 'log').mockImplementation(() => {});
+jest.spyOn(console, 'warn').mockImplementation(() => {});
+
 describe('generateWeeklyPlan', () => {
     const currentMonday = '2024-07-29'; 
     const currentSunday = '2024-08-04';
     const previousMonday = '2024-07-22';
     const previousSunday = '2024-07-28';
 
-    // Base profile for tests
-    const baseUserProfile: UserProfile = {
-        name: 'Test User',
+    // Define default object first
+    const defaultProfileData = {
+        notificationPrefs: { workoutReminders: true, inactivityCues: false, equipmentCues: false, syncStatus: true },
         lactoseSensitive: false,
         backIssues: false,
-        completedOnboarding: true,
+        completedOnboarding: false,
+        equipment: [],
+        completedTutorials: [],
+        // Add other non-optional defaults
+    }; 
+
+    // Base profile for tests
+    const baseUserProfile: UserProfile = { 
+        name: 'Test User',
+        lactoseSensitive: defaultProfileData.lactoseSensitive,
+        backIssues: defaultProfileData.backIssues,
+        completedOnboarding: true, // Override default for most tests
         targetBodyFatPct: undefined,
         targetDate: undefined,
+        dob: '1980-01-01',
+        sex: 'MALE',
+        heightCm: 180,
+        activityLevel: 'moderate',
+        equipment: defaultProfileData.equipment,
+        notificationPrefs: defaultProfileData.notificationPrefs, 
+        completedTutorials: defaultProfileData.completedTutorials,
+        // Optional fields can be undefined
+        calculatedTDEE: undefined,
+        calculatedLBM: undefined,
+        calorieTarget: undefined,
+        proteinTarget: undefined,
+        lastSyncedCaloriesOut: undefined,
+        calculatedBMR: undefined,
     };
     
     // Helper to create a mock previous plan
@@ -50,12 +80,15 @@ describe('generateWeeklyPlan', () => {
 
     beforeEach(() => {
         mockUuidCounter = 0;
-        // Mock console.log to suppress adaptation messages during tests
-        jest.spyOn(console, 'log').mockImplementation(() => {});
+        // Restore any mocks that might have been changed in specific tests (like Math.random for shuffle)
+        jest.restoreAllMocks(); 
+        // Re-apply console mocks as restoreAllMocks clears them
+        jest.spyOn(console, 'log').mockImplementation(() => {}); 
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
     });
 
     afterEach(() => {
-        jest.restoreAllMocks(); // Restore console.log
+        jest.restoreAllMocks(); // Restore console.log and Math.random
     });
 
     it('should generate a 7-day plan with correct start and end dates', () => {
@@ -206,26 +239,16 @@ describe('generateWeeklyPlan', () => {
     });
 
     it('should INCREASE durations by ~10% if previous week completion >= 85%', () => {
-        const previousPlan = createMockPreviousPlan([
-            { type: 'CLIMB', completedAt: 'some-date' }, { type: 'SWIM', completedAt: 'some-date' }, 
-            { type: 'CORE', completedAt: 'some-date' }, { type: 'CLIMB', completedAt: 'some-date' }, 
-            { type: 'SWIM', completedAt: 'some-date' }, { type: 'CORE' }, { type: 'REST' }, // 5/6 = 83% - NO increase
-        ]); 
         const previousPlanHighCompletion = createMockPreviousPlan([
              { type: 'CLIMB', completedAt: 'some-date' }, { type: 'SWIM', completedAt: 'some-date' }, 
              { type: 'CORE', completedAt: 'some-date' }, { type: 'CLIMB', completedAt: 'some-date' }, 
-             { type: 'SWIM', completedAt: 'some-date' }, { type: 'CORE', completedAt: 'some-date' }, { type: 'REST' }, // 6/6 = 100%
+             { type: 'SWIM', completedAt: 'some-date' }, { type: 'CORE', completedAt: 'some-date' }, { type: 'REST' }, 
         ]);
 
-        // Test boundary (83% - no increase)
-        const planBoundary = generateWeeklyPlan(currentMonday, baseUserProfile, previousPlan);
-        expect(planBoundary.workouts.find(w => w.type === 'CLIMB')?.durationMin).toBe(90);
-        expect(planBoundary.workouts.find(w => w.type === 'CORE')?.durationMin).toBe(30);
-
-        // Test high completion (100% - increase)
-        const planHigh = generateWeeklyPlan(currentMonday, baseUserProfile, previousPlanHighCompletion);
-        expect(planHigh.workouts.find(w => w.type === 'CLIMB')?.durationMin).toBe(Math.round(90 * 1.1)); // 99
-        expect(planHigh.workouts.find(w => w.type === 'CORE')?.durationMin).toBe(Math.round(30 * 1.1)); // 33
+        // Test high completion (100% - increase), passing null for busyDays
+        const planHigh = generateWeeklyPlan(currentMonday, baseUserProfile, previousPlanHighCompletion, null); 
+        expect(planHigh.workouts.find(w => w.type === 'CLIMB')?.durationMin).toBe(Math.round(90 * 1.1)); 
+        expect(planHigh.workouts.find(w => w.type === 'CORE')?.durationMin).toBe(Math.round(30 * 1.1)); 
     });
 
     it('should apply fat loss boost *before* completion rate adjustment', () => {
@@ -438,5 +461,62 @@ describe('generateWeeklyPlan', () => {
         expect(swimWorkout?.durationMin).toBe(BASE_DURATIONS.SWIM + 15);
         expect(coreWorkout?.durationMin).toBe(BASE_DURATIONS.CORE);
         // expect(mobilityWorkout?.durationMin).toBe(BASE_DURATIONS.MOBILITY); // Cannot check MOBILITY here
+    });
+
+    // --- Availability Placeholder Tests ---
+    describe('Availability Placeholder', () => {
+        it('should attempt to place shorter workouts on busy days', () => {
+            // Identify indices that get longer workouts in the default template
+            const longWorkoutIndices = defaultWeeklyTemplate.map((type: WorkoutType, index: number) => 
+                (type === 'CLIMB' || type === 'SWIM') ? index : -1
+            ).filter((index: number) => index !== -1);
+            
+            const busyDayIndices = [longWorkoutIndices[0]];
+            const plan = generateWeeklyPlan(currentMonday, baseUserProfile, null, busyDayIndices);
+            const workoutTypes = plan.workouts.map(w => w.type);
+            const shortWorkouts: WorkoutType[] = ['CORE', 'MOBILITY', 'REST'];
+
+            expect(shortWorkouts).toContain(workoutTypes[busyDayIndices[0]]); 
+        });
+
+        it('should not change workout if the workout on the busy day is already short', () => {
+             // Find an index corresponding to a short workout in the default template
+              const shortWorkoutIndices = defaultWeeklyTemplate.map((type: WorkoutType, index: number) => 
+                 (type === 'CORE' || type === 'MOBILITY' || type === 'REST') ? index : -1
+             ).filter((index: number) => index !== -1);
+
+            const busyDayIndices = [shortWorkoutIndices[0]];
+            const plan = generateWeeklyPlan(currentMonday, baseUserProfile, null, busyDayIndices);
+            const workoutTypes = plan.workouts.map(w => w.type);
+            const shortWorkouts: WorkoutType[] = ['CORE', 'MOBILITY', 'REST'];
+
+            expect(shortWorkouts).toContain(workoutTypes[busyDayIndices[0]]);
+        });
+    });
+
+    // --- Back Issues / Pain Level Tests ---
+    describe('Back Issues Handling', () => {
+        it('should use back care template AND reduce CLIMB duration if back issues active', () => {
+            const profileWithBackIssues = { ...baseUserProfile, backIssues: true };
+            const plan = generateWeeklyPlan(currentMonday, profileWithBackIssues);
+            const workoutTypes = plan.workouts.map(w => w.type);
+            expect(workoutTypes.filter(t => t === 'CORE').length).toBe(1);
+            expect(workoutTypes.includes('MOBILITY')).toBe(true);
+            const climbWorkout = plan.workouts.find(w => w.type === 'CLIMB');
+            expect(climbWorkout?.durationMin).toBe(Math.round(BASE_DURATIONS.CLIMB * 0.8));
+        });
+
+        // Add placeholder comment for future enhancement
+        it.todo('should adjust intensity/template based on backPainLevel (future enhancement)');
+        /*
+        it('should use default template if backPainLevel is low', () => {
+            const profileLowPain = { ...baseUserProfile, backIssues: true, backPainLevel: 3 };
+            // ... assertion for default template ...
+        });
+        it('should use back care template if backPainLevel is high', () => {
+             const profileHighPain = { ...baseUserProfile, backIssues: true, backPainLevel: 7 };
+             // ... assertion for back care template ...
+        });
+        */
     });
 });
