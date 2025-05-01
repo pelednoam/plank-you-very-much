@@ -87,88 +87,122 @@ This outlines the primary features to build in the initial phases.
 
 ## 5. Getting Started (New Project Setup)
 
+Follow these steps to initialize and configure the project from scratch.
+
 1.  **Create Next.js App:**
-    ```bash
-    # Make sure you are OUTSIDE the old project directory
-    npx create-next-app@latest plank-you-very-much --typescript --tailwind --eslint --app --src-dir --import-alias "@/*"
-    cd plank-you-very-much
-    ```
+    *   Open your terminal in the desired parent directory (**outside** any old project folder).
+    *   Run the `create-next-app` command:
+        ```bash
+        npx create-next-app@latest plank-you-very-much --typescript --tailwind --eslint --app --src-dir --import-alias "@/*"
+        ```
+    *   Navigate into the new project directory:
+        ```bash
+        cd plank-you-very-much
+        ```
+
 2.  **Install Core Dependencies:**
-    ```bash
-    pnpm add zustand idb react-hook-form @hookform/resolvers zod recharts dayjs @auth/upstash-redis-adapter @vercel/kv next-auth@beta sonner lucide-react uuid gray-matter react-markdown remark-gfm web-push
-    ```
-    ```bash
-    pnpm add -D jest @types/jest @testing-library/react @testing-library/jest-dom jest-environment-jsdom ts-jest cypress cross-env start-server-and-test
-    ```
+    *   Use `pnpm` (or your preferred package manager) to add runtime and development dependencies:
+        ```bash
+        # Runtime Dependencies
+        pnpm add zustand idb react-hook-form @hookform/resolvers zod recharts dayjs @auth/upstash-redis-adapter @vercel/kv next-auth@beta sonner lucide-react uuid gray-matter react-markdown remark-gfm web-push
+
+        # Development Dependencies
+        pnpm add -D jest @types/jest @testing-library/react @testing-library/jest-dom jest-environment-jsdom ts-jest cypress cross-env start-server-and-test
+        ```
+
 3.  **Initialize Shadcn/UI:**
-    ```bash
-    pnpm dlx shadcn-ui@latest init
-    ```
-    (Follow prompts, choose desired style/colors, use `src/` directory, `components/ui` alias).
-4.  **Add Shadcn/UI Components (Example):**
-    ```bash
-    pnpm dlx shadcn-ui@latest add button input label card toast dialog select checkbox radio-group progress avatar switch
-    ```
-    (Add others as needed)
+    *   Run the `shadcn-ui init` command:
+        ```bash
+        pnpm dlx shadcn-ui@latest init
+        ```
+    *   Follow the prompts carefully:
+        *   `Would you like to use TypeScript?` **yes**
+        *   `Which style would you like to use?` **Default** (or your preference)
+        *   `Which color would you like to use as base color?` **Slate** (or your preference)
+        *   `Where is your global CSS file?` `src/app/globals.css` (confirm default)
+        *   `Would you like to use CSS variables for colors?` **yes**
+        *   `Where is your tailwind.config.js located?` `tailwind.config.ts` (confirm default)
+        *   `Configure the import alias for components:` `@/components` (confirm default)
+        *   `Configure the import alias for utils:` `@/lib/utils` (confirm default)
+        *   `Are you using React Server Components?` **yes**
+        *   `Write configuration to components.json.` (confirm overwrite if it exists)
+
+4.  **Add Initial Shadcn/UI Components:**
+    *   Add components likely needed early:
+        ```bash
+        pnpm dlx shadcn-ui@latest add button input label card toast dialog select checkbox radio-group progress avatar switch sheet
+        ```
+    *   Add more components later as required using the same `pnpm dlx shadcn-ui@latest add <component-name>` command.
+
 5.  **Configure Jest:**
-    *   Create `jest.config.mjs` (referencing Next.js docs for App Router setup).
-    *   Create `jest.setup.js` (e.g., to import `@testing-library/jest-dom`).
-    *   Update `tsconfig.json` `types` array to include `jest` and `node`.
-    *   Update `package.json` `scripts` to include `"test": "jest --watch"` or similar.
+    *   Create `jest.config.mjs` in the project root. Populate it based on the [Next.js Jest documentation](https://nextjs.org/docs/app/building-your-application/testing/jest), ensuring it handles the App Router, TypeScript, and CSS Modules/Tailwind correctly.
+    *   Create `jest.setup.js` (e.g., in the root or `src/`) and add necessary imports like `import '@testing-library/jest-dom/extend-expect';`.
+    *   Ensure `tsconfig.json` includes `"jest"` and `"node"` in the `compilerOptions.types` array.
+    *   Add test scripts to `package.json` (see step 8).
+
 6.  **Configure Cypress:**
-    *   (Cypress might prompt setup on first run or use `npx cypress open`)
-    *   Configure `cypress.config.ts` (e.g., set `baseUrl`).
-7.  **Environment Variables:**
-    Manually create a `.env.local` file in the root directory. **Do not commit this file.** Populate it with *all* necessary secrets (referencing list below and potentially the Spec):
-    ```dotenv
-    # Auth Core (Required)
-    AUTH_SECRET="GENERATE_A_NEW_SECRET"
-    AUTH_TRUST_HOST="true"
+    *   Run `pnpm exec cypress open` once.
+    *   Follow the Cypress setup prompts to generate configuration files (`cypress.config.ts`, support files, etc.).
+    *   Edit `cypress.config.ts` and set the `baseUrl` option, e.g., `e2e: { baseUrl: 'http://localhost:3000', ... }`.
 
-    # Vercel KV (Required for Auth & Notifications)
-    KV_URL="YOUR_KV_URL_HERE"
-    KV_REST_API_URL="YOUR_KV_REST_API_URL_HERE"
-    KV_REST_API_TOKEN="YOUR_KV_REST_API_TOKEN_HERE"
-    KV_REST_API_READ_ONLY_TOKEN="YOUR_KV_REST_API_READ_ONLY_TOKEN_HERE"
+7.  **Set Up Environment Variables:**
+    *   Create a `.env.local` file in the project root.
+    *   **Important: DO NOT commit this file to Git.**
+    *   Populate `.env.local` with **all** necessary secrets. Obtain keys/secrets from the respective services (Google, GitHub, Vercel, Fitbit). Generate `AUTH_SECRET` and VAPID keys.
+        ```dotenv
+        # Auth Core (Required)
+        AUTH_SECRET="GENERATE_A_NEW_SECRET_USING_OPENSSL"
+        AUTH_TRUST_HOST="true"
 
-    # Auth Providers (Required for chosen providers)
-    AUTH_GOOGLE_ID="YOUR_GOOGLE_CLIENT_ID_HERE"
-    AUTH_GOOGLE_SECRET="YOUR_GOOGLE_CLIENT_SECRET_HERE"
-    AUTH_GITHUB_ID="YOUR_GITHUB_CLIENT_ID_HERE"
-    AUTH_GITHUB_SECRET="YOUR_GITHUB_CLIENT_SECRET_HERE"
+        # Vercel KV (Required for Auth & Notifications)
+        KV_URL="YOUR_VERCEL_KV_URL"
+        KV_REST_API_URL="YOUR_VERCEL_KV_REST_API_URL"
+        KV_REST_API_TOKEN="YOUR_VERCEL_KV_REST_API_TOKEN"
+        KV_REST_API_READ_ONLY_TOKEN="YOUR_VERCEL_KV_REST_API_READ_ONLY_TOKEN"
 
-    # Fitbit Integration (Required for Fitbit features)
-    NEXT_PUBLIC_FITBIT_CLIENT_ID="YOUR_FITBIT_CLIENT_ID_HERE"
-    FITBIT_CLIENT_SECRET="YOUR_FITBIT_CLIENT_SECRET_HERE"
-    NEXT_PUBLIC_FITBIT_REDIRECT_URI="http://localhost:3000/api/fitbit/callback" # Adjust if needed
+        # Auth Providers (Required if using)
+        AUTH_GOOGLE_ID="YOUR_GOOGLE_CLIENT_ID"
+        AUTH_GOOGLE_SECRET="YOUR_GOOGLE_CLIENT_SECRET"
+        AUTH_GITHUB_ID="YOUR_GITHUB_CLIENT_ID"
+        AUTH_GITHUB_SECRET="YOUR_GITHUB_CLIENT_SECRET"
 
-    # VAPID keys for Push Notifications (Required for Notifications)
-    NEXT_PUBLIC_VAPID_PUBLIC_KEY="YOUR_VAPID_PUBLIC_KEY_HERE"
-    VAPID_PRIVATE_KEY="YOUR_VAPID_PRIVATE_KEY_HERE"
+        # Fitbit Integration (Required for Fitbit)
+        NEXT_PUBLIC_FITBIT_CLIENT_ID="YOUR_FITBIT_CLIENT_ID"
+        FITBIT_CLIENT_SECRET="YOUR_FITBIT_CLIENT_SECRET"
+        NEXT_PUBLIC_FITBIT_REDIRECT_URI="http://localhost:3000/api/fitbit/callback" # Ensure this matches Fitbit app settings
 
-    # --- Client-side only ---
-    NEXT_PUBLIC_APP_NAME="Plank You Very Much"
-    ```
-8.  **Update `package.json` Scripts:** Add scripts for testing (Jest, Cypress E2E), potentially linting/formatting.
-    ```json
-    "scripts": {
-      "dev": "next dev",
-      "build": "next build",
-      "start": "next start",
-      "lint": "next lint",
-      "test": "jest",
-      "test:watch": "jest --watch",
-      "cy:open": "cypress open",
-      "cy:run": "cypress run",
-      "test:e2e": "cross-env NEXT_PUBLIC_VAPID_PUBLIC_KEY=dummy_public_key VAPID_PRIVATE_KEY=dummy_private_key AUTH_TRUST_HOST=true AUTH_SECRET=YOUR_TEST_AUTH_SECRET start-server-and-test start http://localhost:3000 cy:run"
-    },
-    ```
-    *(Note: Replace `YOUR_TEST_AUTH_SECRET` in `test:e2e`, potentially use different dummy keys/secrets for testing vs. dev)*.
+        # VAPID keys for Push Notifications (Required for Notifications)
+        # Generate using: npx web-push generate-vapid-keys
+        NEXT_PUBLIC_VAPID_PUBLIC_KEY="YOUR_GENERATED_PUBLIC_KEY"
+        VAPID_PRIVATE_KEY="YOUR_GENERATED_PRIVATE_KEY"
 
-9.  **Run the development server:**
-    ```bash
-    pnpm dev
-    ```
+        # --- Client-side only (Optional) ---
+        NEXT_PUBLIC_APP_NAME="Plank You Very Much"
+        ```
+
+8.  **Update `package.json` Scripts:**
+    *   Ensure your `scripts` section includes commands for development, building, starting, linting, and testing (both Jest and Cypress E2E):
+        ```json
+        "scripts": {
+          "dev": "next dev",
+          "build": "next build",
+          "start": "next start",
+          "lint": "next lint",
+          "test": "jest",
+          "test:watch": "jest --watch",
+          "cy:open": "cypress open",
+          "cy:run": "cypress run",
+          "test:e2e": "cross-env NEXT_PUBLIC_VAPID_PUBLIC_KEY=dummy_test_public_key VAPID_PRIVATE_KEY=dummy_test_private_key AUTH_TRUST_HOST=true AUTH_SECRET=dummy_test_secret start-server-and-test start http://localhost:3000 cy:run"
+        },
+        ```
+    *   **Note:** The `test:e2e` script uses dummy secrets via `cross-env`. You might need to adjust these based on your testing strategy or use a separate test environment configuration.
+
+9.  **Run the Development Server:**
+    *   Start the app locally:
+        ```bash
+        pnpm dev
+        ```
+    *   Open `http://localhost:3000` in your browser.
 
 ## 6. Testing Strategy (Target)
 
