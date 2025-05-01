@@ -40,7 +40,7 @@ export function OfflineQueueProcessor() {
         removeAction: state.removeAction,
     }));
     // Get the specific update functions from each store
-    const plannerApplyResult = usePlannerStore((state) => state._applyQueuedUpdate);
+    const _updateWorkoutInPlan = usePlannerStore((state) => state._updateWorkoutInPlan);
     const nutritionApplyResult = useNutritionStore((state) => state._applyQueuedUpdate);
 
     const [isProcessing, setIsProcessing] = useState(false);
@@ -80,7 +80,8 @@ export function OfflineQueueProcessor() {
                 switch (storeDomain) {
                     case 'planner':
                         // TODO: Update plannerStore's _applyQueuedUpdate signature similarly
-                        // plannerApplyResult(action, syncSuccess, serverResponse);
+                        // OR adapt this call to use _updateWorkoutInPlan if structure matches
+                        // _updateWorkoutInPlan(action.payload?.workoutId, action.payload?.completionData); // Example call structure
                         console.warn('[Queue Processor] Planner store integration needs update for sync results.');
                         break;
                     case 'nutrition':
@@ -126,7 +127,7 @@ export function OfflineQueueProcessor() {
             console.log("[Queue Processor] Sync process finished (no user actions or only unknown actions).");
         }
 
-    }, [isProcessing, isOnline, getActions, removeAction, plannerApplyResult, nutritionApplyResult]);
+    }, [isProcessing, isOnline, getActions, removeAction, _updateWorkoutInPlan, nutritionApplyResult]);
 
     useEffect(() => {
         // Trigger processing when coming online

@@ -1,6 +1,7 @@
 'use client';
 
-import { SessionProvider } from 'next-auth/react';
+// import { SessionProvider } from 'next-auth/react'; // No longer used directly
+import { ClientSessionProvider } from './ClientSessionProvider'; // Import the wrapper
 import type { ReactNode } from 'react';
 
 interface Props {
@@ -9,5 +10,5 @@ interface Props {
 
 export function Providers({ children }: Props) {
   // You can add other global providers here if needed
-  return <SessionProvider>{children}</SessionProvider>;
+  return <ClientSessionProvider>{children}</ClientSessionProvider>; // Use the wrapper
 } 

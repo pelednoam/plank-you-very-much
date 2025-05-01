@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import Modal from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
+import { Button } from '@/components/ui/button';
 import type { Tutorial } from '@/types';
 // Import remark and remark-html for markdown processing
 // You might need to install these: pnpm add remark remark-html

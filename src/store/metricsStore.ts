@@ -6,6 +6,7 @@ import { createIdbStorage } from '@/lib/idbStorage';
 
 interface MetricsState {
   metrics: BodyMetrics[];
+  _hasHydrated: boolean; // <-- Add hydration status flag
   addMetric: (metricData: BodyMetrics) => void;
   importMetrics: (importedMetrics: BodyMetrics[]) => { added: number; duplicates: number };
   // Maybe add update/delete if needed, but often metrics are append-only
@@ -17,6 +18,7 @@ export const useMetricsStore = create(
   persist<MetricsState>(
     (set, get) => ({
       metrics: [], // Start with empty historical data
+      _hasHydrated: false, // <-- Initialize hydration flag
 
       addMetric: (metricData) => {
         // Optional: Prevent duplicates for the exact same date/time if necessary
@@ -93,9 +95,18 @@ export const useMetricsStore = create(
       partialize: (state) => ({ 
           metrics: state.metrics 
       }) as any, 
+      // Add onRehydrateStorage to set the flag
+      onRehydrateStorage: () => {
+        useMetricsStore.setState({ _hasHydrated: true });
+        console.log("MetricsStore: Rehydration process finished.");
+      },
+      skipHydration: typeof window === 'undefined', // Skip hydration on server
     }
   )
 );
+
+// Selector for hydration status
+export const selectMetricsHasHydrated = (state: MetricsState) => state._hasHydrated;
 
 // Selectors
 export const selectAllMetrics = (state: MetricsState) => state.metrics;

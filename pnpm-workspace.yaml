@@ -1,0 +1,7 @@
+onlyBuiltDependencies:
+  - aws-sdk
+  - bcrypt
+  - core-js
+  - cypress
+  - sharp
+  - unrs-resolver

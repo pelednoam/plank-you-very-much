@@ -125,7 +125,7 @@ export default function OnboardingForm() {
 
     return (
         <Form {...form}>
-            <form onSubmit={(e) => e.preventDefault()} className="space-y-8">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
                 <Card>
                     <CardHeader>
                         <CardTitle>Step {currentStep} of {TOTAL_STEPS}</CardTitle>

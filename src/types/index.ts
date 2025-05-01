@@ -65,9 +65,9 @@ export interface FitbitDaily {
 // Added based on fitbitActions requirements
 export interface FitbitTokenData {
   accessToken: string;
-  refreshToken: string;
-  fitbitUserId: string; // ID of the user on Fitbit's platform
-  expiresAt: number;    // Timestamp (seconds since epoch) when the access token expires
+  expiresAt: number; // Unix timestamp (seconds since epoch)
+  fitbitUserId: string; 
+  refreshToken?: string; // Made optional
 }
 
 export interface NfcTag {

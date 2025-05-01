@@ -15,7 +15,7 @@ const getFitbitTokenKey = (userId: string): string => `fitbit-token:user:${userI
  * Updates the stored tokens on success.
  * @returns {Promise<{ success: boolean; error?: string; newAccessToken?: string; newExpiresAt?: number }>} Result of the refresh attempt, includes new token info on success.
  */
-export async function refreshFitbitToken(): Promise<{
+async function refreshFitbitToken(): Promise<{
     success: boolean;
     error?: string;
     access_token?: string;
@@ -294,6 +294,78 @@ export async function revokeFitbitToken(): Promise<{ success: boolean; error?: s
     }
 }
 
+/**
+ * Stores the obtained Fitbit tokens (access and refresh) securely.
+ * - Access token and expiry are stored in Vercel KV, associated with the app user ID.
+ * - Refresh token is stored in an HTTP-only cookie.
+ * @param {object} tokenData - Object containing accessToken, refreshToken, fitbitUserId, expiresIn.
+ * @returns {Promise<{ success: boolean; error?: string }>} 
+ */
+export async function storeFitbitTokens({
+    accessToken,
+    refreshToken,
+    fitbitUserId,
+    expiresIn,
+}: {
+    accessToken: string;
+    refreshToken: string;
+    fitbitUserId: string;
+    expiresIn: number;
+}): Promise<{ success: boolean; error?: string }> {
+    const appUserId = await getCurrentUserId();
+    if (!appUserId) {
+        console.error("[Fitbit Store] Cannot store tokens: User not authenticated.");
+        return { success: false, error: "User not authenticated" };
+    }
+
+    const tokenKey = getFitbitTokenKey(appUserId);
+    const nowInSeconds = Math.floor(Date.now() / 1000);
+    // Add a buffer (e.g., 5 minutes) before actual expiry for safety
+    const expiresAt = nowInSeconds + expiresIn - 300; 
+
+    const tokenDataToStore: FitbitTokenData = {
+        accessToken: accessToken,
+        expiresAt: expiresAt,
+        fitbitUserId: fitbitUserId,
+        // We don't store the refresh token in KV for security
+    };
+
+    try {
+        // Store access token details in KV
+        await kv.set(tokenKey, JSON.stringify(tokenDataToStore));
+        console.log(`[Fitbit Store] Access token details stored in KV for user ${appUserId}.`);
+
+        // Store refresh token in HTTP-only cookie
+        const cookieStore = await cookies();
+        cookieStore.set('fitbit_refresh_token', refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            path: '/',
+            sameSite: 'lax',
+            maxAge: 60 * 60 * 24 * 30, // 30 days expiry for refresh token cookie
+        });
+        console.log(`[Fitbit Store] Refresh token stored in cookie for user ${appUserId}.`);
+
+        return { success: true };
+    } catch (error) {
+        console.error(`[Fitbit Store] Error storing tokens for user ${appUserId}:`, error);
+        // Attempt cleanup if one part failed?
+        try { await kv.del(tokenKey); } catch { /* ignore */ }
+        try { 
+            const store = await cookies(); // Get store instance first
+            store.delete('fitbit_refresh_token'); 
+        } catch { /* ignore */ }
+        
+        if (error instanceof Error && error.message.includes('KV')) {
+             return { success: false, error: 'kv_storage_error' };
+        } else if (error instanceof Error && error.message.includes('cookie')) {
+             return { success: false, error: 'cookie_storage_error' };
+        } else {
+            return { success: false, error: 'unknown_storage_error' };
+        }
+    }
+}
+
 // --- Full Data Sync Actions ---
 
 // Create an extended interface for the tests
@@ -350,7 +422,8 @@ export async function syncFitbitDataForDate({
     if (!currentAccessToken || !currentExpiresAt) {
         // Need to fetch token, so we MUST have a user ID
         if (!effectiveUserId) {
-            effectiveUserId = await getCurrentUserId();
+            // Fix: Ensure null return from getCurrentUserId becomes undefined
+            effectiveUserId = (await getCurrentUserId()) ?? undefined;
             if (!effectiveUserId) {
                 console.error("[Fitbit Sync] Cannot fetch token: User not authenticated.");
                 return { success: false, error: "User not authenticated" };
@@ -362,9 +435,9 @@ export async function syncFitbitDataForDate({
             const storedTokenString = await kv.get<string>(tokenKey);
             if (storedTokenString) {
                 tokenInfo = JSON.parse(storedTokenString) as FitbitTokenData;
-                currentAccessToken = tokenInfo.accessToken;
-                // Fix: Use ?? undefined to match expected type 'string | null | undefined'
-                currentExpiresAt = tokenInfo.expiresAt ?? undefined; 
+                // Fix: Ensure null becomes undefined
+                currentAccessToken = tokenInfo.accessToken ?? undefined;
+                currentExpiresAt = tokenInfo.expiresAt ?? undefined;
             } else {
                  console.error(`[Fitbit Sync] No Fitbit token found in KV for user ${effectiveUserId}.`);
                  return { success: false, error: "Fitbit token not found or invalid." };
@@ -561,9 +634,6 @@ type FetchFitbitResult = {
 export {
     getCurrentUserId,
     refreshFitbitToken,
-    fetchFitbitData,
-    revokeFitbitToken,
-    syncFitbitDataForDate,
 };
 
 export type { FitbitDataResponse, FitbitTokenData, FitbitActivity, FitbitDaily, FetchFitbitResult, FitbitSyncResult }; 

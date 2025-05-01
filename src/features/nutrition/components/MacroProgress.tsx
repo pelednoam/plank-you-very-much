@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { useMealStore } from '@/store/mealStore';
-import { useUserProfileStore } from '@/store/userProfileStore';
+import { useUserProfileStore, selectUserProfile } from '@/store/userProfileStore';
 import { useMetricsStore } from '@/store/metricsStore';
 import {
     calculateBMR,
@@ -10,96 +10,99 @@ import {
     calculateCalorieTarget,
     calculateProteinTarget
 } from '@/lib/calculationUtils';
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 
 interface MacroProgressProps {
     date: string; // YYYY-MM-DD format
 }
 
-const MacroProgress: React.FC<MacroProgressProps> = ({ date }) => {
+// Helper to get progress bar color
+const getProgressColor = (percentage: number): string => {
+    if (percentage >= 100) return "bg-green-500";
+    if (percentage >= 75) return "bg-yellow-500";
+    return "bg-blue-500";
+};
+
+export function MacroProgress({ date }: MacroProgressProps) {
     // Get data from stores
-    const macrosConsumed = useMealStore((state) => state.getMacrosForDate(date));
-    const userProfile = useUserProfileStore((state) => state.profile);
+    const totals = useMealStore((state) => state.getMacrosForDate(date));
+    const userProfile = useUserProfileStore(selectUserProfile);
     const latestMetric = useMetricsStore((state) => state.getLatestMetric());
 
     // Calculate targets (using memoization for efficiency)
     const targets = React.useMemo(() => {
         const bmr = calculateBMR(userProfile ?? {}, latestMetric ?? null);
         const tdee = calculateTDEE(bmr, userProfile?.activityLevel);
-        const calorieTarget = calculateCalorieTarget(tdee, userProfile?.targetBodyFatPct, userProfile?.targetDate);
-        const proteinTarget = calculateProteinTarget(latestMetric ?? null, userProfile?.targetBodyFatPct);
+        const calorieTarget = calculateCalorieTarget(userProfile, latestMetric ?? null);
+        const proteinTarget = calculateProteinTarget(latestMetric ?? null);
         // Placeholder targets for Carbs/Fat (could be derived from remaining calories)
-        const remainingCals = calorieTarget - (proteinTarget * 4);
-        const carbTarget = (remainingCals * 0.6) / 4; // Example: 60% carbs
-        const fatTarget = (remainingCals * 0.4) / 9;  // Example: 40% fat
+        const remainingCals = (calorieTarget ?? 0) - ((proteinTarget ?? 0) * 4);
+        const carbTarget = Math.max(0, Math.round((remainingCals * 0.6) / 4)); // Example: 60% carbs
+        const fatTarget = Math.max(0, Math.round((remainingCals * 0.4) / 9)); // Example: 40% fat
 
         return {
             kcal: calorieTarget,
             proteinG: proteinTarget,
-            carbsG: carbTarget > 0 ? carbTarget : 200, // Basic default if calculation fails
-            fatG: fatTarget > 0 ? fatTarget : 70,    // Basic default if calculation fails
+            carbsG: carbTarget,
+            fatG: fatTarget,
         };
     }, [userProfile, latestMetric]);
 
     // Helper to calculate progress percentage
-    const getProgress = (consumed: number, target: number) => {
-        if (!target || target <= 0) return 0;
+    const getProgress = (consumed: number, target: number | null) => {
+        if (target === null || target <= 0) return 0;
         const percentage = (consumed / target) * 100;
         return Math.min(percentage, 100); // Cap at 100%
     };
 
+    const caloriePercentage = getProgress(totals.kcal, targets.kcal);
+    const proteinPercentage = getProgress(totals.proteinG, targets.proteinG);
+    const carbPercentage = getProgress(totals.carbsG, targets.carbsG);
+    const fatPercentage = getProgress(totals.fatG, targets.fatG);
+
     return (
         <Card>
             <CardHeader>
-                <CardTitle className="text-lg">Macronutrient Progress</CardTitle>
-                {/* Optionally show the date here if not obvious from context */} 
-                {/* <p className="text-sm text-muted-foreground">{dayjs(date).format('ll')}</p> */}
+                <CardTitle>Macronutrient Progress</CardTitle>
+                <CardDescription>Daily intake vs targets.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
                 {/* Calories */}
                 <div>
-                    <div className="flex justify-between items-baseline mb-1">
-                        <span className="font-medium">Calories</span>
-                        <span className="text-sm text-muted-foreground">
-                            {macrosConsumed.kcal.toFixed(0)} / {targets.kcal.toFixed(0)} kcal
-                        </span>
+                    <div className="flex justify-between text-sm font-medium mb-1">
+                        <span>Calories</span>
+                        <span>{totals.kcal.toFixed(0)} / {(targets.kcal ?? 0).toFixed(0)} kcal</span>
                     </div>
-                    <Progress value={getProgress(macrosConsumed.kcal, targets.kcal)} className="h-2" />
+                    <Progress value={caloriePercentage} className="h-2" />
                 </div>
                 {/* Protein */}
                 <div>
-                    <div className="flex justify-between items-baseline mb-1">
-                        <span className="font-medium">Protein</span>
-                        <span className="text-sm text-muted-foreground">
-                            {macrosConsumed.proteinG.toFixed(0)} / {targets.proteinG.toFixed(0)} g
-                        </span>
+                    <div className="flex justify-between text-sm font-medium mb-1">
+                        <span>Protein</span>
+                        <span>{totals.proteinG.toFixed(1)} / {(targets.proteinG ?? 0).toFixed(1)} g</span>
                     </div>
-                    <Progress value={getProgress(macrosConsumed.proteinG, targets.proteinG)} className="h-2" />
+                    <Progress value={proteinPercentage} className="h-2" />
                 </div>
-                {/* Carbs */}
-                <div>
-                    <div className="flex justify-between items-baseline mb-1">
-                        <span className="font-medium">Carbs</span>
-                        <span className="text-sm text-muted-foreground">
-                            {macrosConsumed.carbsG.toFixed(0)} / {targets.carbsG.toFixed(0)} g
-                        </span>
-                    </div>
-                    <Progress value={getProgress(macrosConsumed.carbsG, targets.carbsG)} className="h-2" />
-                </div>
-                {/* Fat */}
-                <div>
-                    <div className="flex justify-between items-baseline mb-1">
-                        <span className="font-medium">Fat</span>
-                        <span className="text-sm text-muted-foreground">
-                            {macrosConsumed.fatG.toFixed(0)} / {targets.fatG.toFixed(0)} g
-                        </span>
-                    </div>
-                    <Progress value={getProgress(macrosConsumed.fatG, targets.fatG)} className="h-2" />
-                </div>
+                 {/* Carbs */}
+                 <div>
+                     <div className="flex justify-between text-sm font-medium mb-1">
+                         <span>Carbohydrates</span>
+                         <span>{totals.carbsG.toFixed(1)} / {targets.carbsG.toFixed(1)} g</span>
+                     </div>
+                     <Progress value={carbPercentage} className="h-2" />
+                 </div>
+                 {/* Fat */}
+                 <div>
+                     <div className="flex justify-between text-sm font-medium mb-1">
+                         <span>Fat</span>
+                         <span>{totals.fatG.toFixed(1)} / {targets.fatG.toFixed(1)} g</span>
+                     </div>
+                     <Progress value={fatPercentage} className="h-2" />
+                 </div>
             </CardContent>
         </Card>
     );
-};
+}
 
 export default MacroProgress; 

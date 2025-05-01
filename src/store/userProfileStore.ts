@@ -32,6 +32,7 @@ interface FitnessData {
 // Define the full state including actions
 export interface UserProfileState {
   profile: UserProfile | null; // Only profile needs to be top-level state
+  _hasHydrated: boolean; // <-- Add hydration status flag
   setProfile: (profileData: UserProfile) => void;
   completeOnboarding: (profileData: Omit<UserProfile, 'completedOnboarding' | 'id' | 'completedTutorials' | 'notificationPrefs' | 'fitbitUserId' | 'fitbitAccessToken' | 'fitbitExpiresAt' | 'lastSyncedCaloriesOut'>) => void;
   updateSettings: (settingsData: Partial<Omit<UserProfile, 'notificationPrefs' | 'completedTutorials' | 'fitbitAccessToken' | 'fitbitExpiresAt' | 'lastSyncedCaloriesOut' | 'id' | 'email' | 'image'>>) => void; // Exclude managed fields
@@ -86,6 +87,7 @@ export const useUserProfileStore = create<UserProfileState>()(
   persist(
     (set, get) => ({
       profile: null, // Initialize profile as null
+      _hasHydrated: false, // <-- Initialize hydration flag
 
       setProfile: (profileData) => set({ profile: profileData }),
 
@@ -237,7 +239,7 @@ export const useUserProfileStore = create<UserProfileState>()(
           };
       }),
 
-      clearFitbitConnection: () => set((state) => {
+      clearFitbitConnection: () => set((state: UserProfileState) => {
           if (!state.profile) return {};
           return {
               profile: {
@@ -248,39 +250,36 @@ export const useUserProfileStore = create<UserProfileState>()(
               }
           };
       }),
-
     }),
     {
+      // Persistence options
       name: 'user-profile-storage',
-      storage: createIdbStorage<PersistedUserProfileState>(),
-      // Partialize function only saves the profile object
-      partialize: (state): PersistedUserProfileState => ({ 
+      storage: typeof window !== 'undefined' 
+                 ? createIdbStorage<PersistedUserProfileState>() 
+                 : {
+                     getItem: async () => null,
+                     setItem: async () => {},
+                     removeItem: async () => {},
+                   },
+      partialize: (state: UserProfileState): PersistedUserProfileState => ({ 
           profile: state.profile, 
       }),
-      // Load default profile if nothing is in storage
-       onRehydrateStorage: (state) => {
-            console.log("UserProfileStore: Hydration finished");
-            if (!state?.profile) {
-                console.log("UserProfileStore: No profile found in storage, setting default.");
-                return (state, error) => {
-                     if (error) {
-                         console.error("UserProfileStore: Failed to hydrate", error);
-                    } else {
-                         // Ensure setProfile exists before calling
-                         if (state?.setProfile) {
-                             state.setProfile(defaultProfile);
-                         } else {
-                              console.error("UserProfileStore: setProfile action is missing during rehydration.");
-                         }
-                     }
-                 }
-            }
-        }
+      // Simple onRehydrateStorage implementation
+      onRehydrateStorage: () => {
+        // This function runs once hydration is complete or fails.
+        // We simply update the _hasHydrated flag in the store.
+        useUserProfileStore.setState({ _hasHydrated: true });
+        console.log("UserProfileStore: Rehydration process finished.");
+      },
+      skipHydration: typeof window === 'undefined', // Skip hydration on server
     }
   )
 );
 
-// Selectors
+// Selector to easily check hydration status
+export const selectHasHydrated = (state: UserProfileState) => state._hasHydrated;
+
+// Original selectors
 export const selectIsOnboardingComplete = (state: UserProfileState) => state.profile?.completedOnboarding ?? false;
 export const selectUserProfile = (state: UserProfileState) => state.profile;
 // Add default fallback for notification preferences selector

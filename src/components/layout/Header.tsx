@@ -5,7 +5,7 @@ import { PwaInstallButton } from '@/components/PwaInstallButton'; // Import the 
 import { Menu, Mountain } from 'lucide-react'; // Assuming icons are used
 import { Button } from '@/components/ui/button'; // Assuming Button is used
 // import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'; // Removed unused import
-import AuthButtons from '../auth/AuthButtons'; // Import the new component
+import { AuthButtons } from '../auth/AuthButtons'; // Corrected: Use named import
 
 const Header: React.FC = () => {
   return (

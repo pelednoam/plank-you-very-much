@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { usePlannerStore } from '@/store/plannerStore';
+import { usePlannerStore, initializePlannerStore } from '@/store/plannerStore';
 import { useUserProfileStore } from '@/store/userProfileStore'; // Import user profile store
 import { useMediaStore } from '@/store/mediaStore'; // Import media store
 import type { Workout, MediaAsset } from '@/types';
@@ -155,17 +155,19 @@ interface WeeklyCalendarViewProps {
 }
 
 export default function WeeklyCalendarView({}: WeeklyCalendarViewProps) {
+  const { userProfile } = useUserProfileStore(state => ({ userProfile: state.profile })); // Removed loading
   const [currentWeekStart, setCurrentWeekStart] = useState(dayjs().startOf('week'));
-  const { workouts: allWorkouts, updateWorkout, generatePlan, clearPlanForWeek } = usePlannerStore((state) => ({
-    workouts: state.workouts,
-    updateWorkout: state.updateWorkout,
-    generatePlan: state.generatePlan,
-    clearPlanForWeek: state.clearPlanForWeek,
+  // Correct the selector: remove workouts, use correct action names
+  const { updateWorkoutAction, generatePlanAction } = usePlannerStore((state) => ({
+      // workouts: state.workouts, // Removed - workouts are inside state.plans[week]
+      updateWorkoutAction: state._updateWorkoutInPlan, // Use the actual action name
+      generatePlanAction: state.generatePlanForWeek, // Use the actual action name
+      // clearPlanForWeek: state.clearPlanForWeek, // Removed - does not exist in store
   }));
-  // Get user profile for plan generation
-  const userProfile = useUserProfileStore((state) => state.profile);
+  // Fetch the specific plan for the current week separately
+  const currentWeekPlan = usePlannerStore(state => state.getPlanForDate(currentWeekStart.format('YYYY-MM-DD')));
+  const allWorkouts = currentWeekPlan?.workouts ?? []; // Get workouts from the plan or default to empty array
   const getAssetById = useMediaStore((state) => state.getAssetById); // Get function from media store
-  const isOnline = useOnlineStatus(); // Import and use online status hook
 
   // --- Modal State --- 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -234,8 +236,7 @@ export default function WeeklyCalendarView({}: WeeklyCalendarViewProps) {
         const newPlannedAt = dayjs(`${newDateStr}T${originalTime}`).toISOString();
 
         console.log(`Moving workout ${active.id} to ${newPlannedAt}`);
-        // Pass isOnline status to updateWorkout
-        updateWorkout(activeWorkout.id, { plannedAt: newPlannedAt }, isOnline);
+        updateWorkoutAction(activeWorkout.id, { plannedAt: newPlannedAt });
       }
     }
   }
@@ -251,10 +252,7 @@ export default function WeeklyCalendarView({}: WeeklyCalendarViewProps) {
         return;
       }
       console.log(`Clearing and generating plan for week: ${currentWeekStart.format('YYYY-MM-DD')}`);
-      // Clear existing workouts for the current week first
-      clearPlanForWeek(currentWeekStart.toDate());
-      // Generate the new plan using the utility function via the store action
-      generatePlan(currentWeekStart.toDate(), userProfile);
+      generatePlanAction(currentWeekStart.format('YYYY-MM-DD'), userProfile);
       // Optionally add a success message/toast here
     }
   };

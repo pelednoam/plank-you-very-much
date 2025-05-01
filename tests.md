@@ -41,10 +41,10 @@ These tests verify individual functions, components, or modules in isolation.
 
 *   **`src/store/activityStore.test.ts`**
     *   **Status:** ✅ Passing
-    *   **Description:** Tests adding/updating/retrieving daily activity data (e.g., Fitbit sync data).
+    *   **Description:** Tests adding/updating/retrieving daily activity data and hydration flag logic.
 *   **`src/store/metricsStore.test.ts`**
     *   **Status:** ✅ Passing
-    *   **Description:** Tests adding/updating/retrieving body metrics (weight, body fat) and retrieving the latest metric.
+    *   **Description:** Tests adding/updating/retrieving body metrics, import logic, and hydration flag logic.
 *   **`src/store/offlineQueueStore.test.ts`**
     *   **Status:** ✅ Passing
     *   **Description:** Tests adding, removing, retrieving, and updating metadata for actions in the offline queue.
@@ -53,16 +53,16 @@ These tests verify individual functions, components, or modules in isolation.
     *   **Description:** Tests adding/deleting meals, including offline queue integration.
 *   **`src/store/plannerStore.test.ts`**
     *   **Status:** ✅ Passing
-    *   **Description:** Tests plan generation trigger (including ensuring Monday start date), passing previous plan data for adaptation, placeholder availability usage, multi-plan storage/retrieval, marking workouts complete (inc. offline handling), and store initialization logic.
+    *   **Description:** Tests plan generation trigger, adaptive logic inputs, multi-plan storage, marking workouts complete (inc. offline handling), and store initialization.
 *   **`src/store/userProfileStore.test.ts`**
     *   **Status:** ✅ Passing
-    *   **Description:** Tests profile setting/updating, onboarding completion, goal setting, Fitbit connection management, fitness data updates (including automatic recalculation of BMR/TDEE/LBM/calorie/protein targets using mocked `calculationUtils` and `metricsStore`), and tutorial completion tracking. Includes checks for handling null profiles and persistence/hydration.
+    *   **Description:** Tests profile setting/updating, onboarding completion, goal setting, Fitbit connection management, fitness data updates (inc. recalculations), tutorial completion, and hydration flag logic.
 
 ### Features (`src/features`)
 
 *   **`src/features/planner/utils/generatePlan.test.ts`**
     *   **Status:** ✅ Passing / ✎ 1 Todo
-    *   **Description:** Tests the core `generateWeeklyPlan` utility, including template selection (default vs. back care based on profile/completion), duration adaptations (fat loss goal, completion rate, back issues), availability placeholder logic (swapping workouts), and enforcement of minimum durations. Includes a `todo` for future back pain level testing.
+    *   **Description:** Tests the core `generateWeeklyPlan` utility, including template selection, duration adaptations, availability placeholder logic, and enforcement of minimum durations. Includes a `todo` for future back pain level testing.
 
 ### API Routes (`src/app/api`)
 
@@ -81,24 +81,14 @@ These tests verify individual functions, components, or modules in isolation.
 
 ### Components (`src/components`, `src/features/*/components`)
 
-*   **Status:** ➖ Missing (Partial - 1 Added) / ✅ Passing
-*   **Description:** The Jest configuration issue (`SyntaxError: Cannot use import statement outside a module` for `next-auth/react`) has been resolved by **mocking** the `next-auth/react` module (`src/__mocks__/next-auth/react.js`). Component testing is now unblocked.
-    *   **`src/features/settings/components/GoalSettingsForm.test.tsx`** ✅ Passing - Tests form rendering, input changes, validation, and submission using mocked store.
-    *   **`src/features/settings/components/UserProfileForm.test.tsx`** ✅ Passing - Tests rendering with initial values, input changes (text, number, checkbox, select), validation (positive height, DOB not future), form submission, and disabled state. Mocks store, `sonner`, and `scrollIntoView`.
-    *   **`src/features/settings/components/PreferenceToggles.test.tsx`** ✅ Passing - Tests rendering toggles based on store state, toggling preferences on/off (calling store action), handling null/missing profile/prefs, and showing toasts. Mocks store and `sonner`.
-    *   **Key Missing Examples:** `<WorkoutDetailsModal />`, `<Dashboard />`, `<MetricCards />`, `<Planner />`, `<NutritionLog />`, `<IntegrationSettings />`, `<NotificationSettings />`, `<CsvImportButton />`, `<ExerciseVideo />`, `<MealGallery />`.
-
-### Auth Components (`src/components/auth`)
-
-*   **`src/components/auth/AuthButtons.test.tsx`**
-    *   **Status:** ✅ Passing
-    *   **Description:** Tests conditional rendering based on authentication session state (`loading`, `unauthenticated`, `authenticated`) using mocked `useSession` and child components.
-*   **`src/components/auth/SignInButton.tsx`**
-    *   **Status:** ➖ Missing
-    *   **Description:** Tests for rendering and sign-in action trigger.
-*   **`src/components/auth/SignOutButton.tsx`**
-    *   **Status:** ➖ Missing
-    *   **Description:** Tests for rendering and sign-out action trigger.
+*   **Overall Status:** ➖ Partial / ✅ Passing (Some Implemented)
+*   **Description:** Component testing is unblocked via module mocks. Several key components now have tests, but many are still missing.
+    *   **`src/features/settings/components/GoalSettingsForm.test.tsx`:** ✅ Passing - Tests form rendering, input changes, validation, and submission.
+    *   **`src/features/settings/components/UserProfileForm.test.tsx`:** ✅ Passing - Tests rendering, input changes, validation, submission, and disabled state.
+    *   **`src/features/settings/components/PreferenceToggles.test.tsx`:** ✅ Passing - Tests rendering, toggling preferences, handling null states, and toasts.
+    *   **`src/features/settings/components/NotificationSettings.test.tsx`:** ✅ Passing - Tests rendering based on API states, button interactions, and preference toggles. (Mocks Notification/ServiceWorker APIs).
+    *   **`src/components/auth/AuthButtons.test.tsx`:** ✅ Passing - Tests conditional rendering based on authentication session state.
+    *   **Key Missing Examples:** `<WorkoutDetailsModal />`, `<Dashboard />`, `<MetricCards />`, `<Planner />`, `<NutritionLog />`, `<IntegrationSettings />`, `<CsvImportButton />`, `<ExerciseVideo />`, `<Timer />`, `<SignInButton />`, `<SignOutButton />`...
 
 ### Auth Middleware (`src/middleware.ts`)
 
@@ -109,26 +99,24 @@ These tests verify individual functions, components, or modules in isolation.
 
 ## End-to-End Tests (Cypress)
 
-*   **Status:** ➖ Missing
-*   **Description:** No E2E tests implemented yet. Cypress setup is required.
-    *   **Critical Flows to Cover (Examples):**
-        *   Onboarding completion.
-        *   User Sign-in/Sign-out (Google/GitHub/Credentials).
-        *   Connecting Fitbit account.
-        *   Syncing Fitbit data and seeing updated metrics on Dashboard & recalculated targets in profile.
-        *   Generating a weekly plan (observing adaptive changes based on mock history).
-        *   Marking a workout as complete/incomplete.
-        *   Logging a meal.
-        *   Updating profile/goals in Settings.
-        *   Exporting data.
-        *   Subscribing/Unsubscribing from notifications (mock validation if possible).
+*   **Overall Status:** ❌ Failing / ➖ Partial (Setup Complete, 1 spec failing)
+*   **Description:** Cypress is set up with `start-server-and-test`. Initial specs exist, but the settings page test is consistently failing due to rendering issues in the test environment.
+*   **`settings.cy.ts`:** ❌ **Failing**
+    *   **Issue:** Tests time out waiting for elements (`h1`, `h3`, etc.) to appear. A React hydration error (#185) occurs but is suppressed via `Cypress.on('uncaught:exception')`. The underlying cause seems to be a failure of the page to render correctly in the Cypress/production environment.
+    *   **Contains:** Basic navigation and rendering checks for headings of different sections.
+*   **`smoke.cy.ts`:** ✅ **Passing**
+    *   **Contains:** Simple test to load the home page.
+*   **`auth.cy.ts`:** ➖ Missing
+*   **`dashboard.cy.ts`:** ➖ Missing
+*   **`planner.cy.ts`:** ➖ Missing
+*   **`onboarding.cy.ts`:** ➖ Missing
 
 ---
 
 ## Running Tests
 
 ```bash
-# Run all Jest unit tests
+# Run all Jest unit/component tests
 pnpm test
 
 # Run a specific Jest test file
@@ -137,7 +125,9 @@ pnpm test src/store/plannerStore.test.ts
 # Run Jest in watch mode
 pnpm test --watch
 
-# Run Cypress tests (once configured)
-# pnpm exec cypress open
-# pnpm exec cypress run
+# Run E2E tests (headless)
+pnpm run test:e2e
+
+# Run E2E tests interactively (for debugging)
+pnpm exec cypress open
 ```

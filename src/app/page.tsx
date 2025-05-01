@@ -21,7 +21,7 @@ export default function DashboardPage() {
 
       <section aria-labelledby="progress-title">
         <h2 id="progress-title" className="text-xl font-semibold mb-2">Progress Overview</h2>
-        <ProgressChart />
+        {/* <ProgressChart /> */}
       </section>
 
       <section aria-labelledby="today-workout-title">

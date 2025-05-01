@@ -8,195 +8,174 @@ _AI-Assisted Personal Trainer – "Climb higher, dive stronger, live leaner."_
 
 ## 1. Purpose & Vision
 
-This project implements the **Plank You Very Much** web application, an AI-assisted personal trainer designed to help users (initially Shay, 45 yo) lower body fat while preserving back health and supporting activities like climbing and swimming. The goal is to provide adaptive weekly plans, habit nudges, progress dashboards, and seamless integration with daily routines and equipment.
+This project aims to implement the **Plank You Very Much** web application, an AI-assisted personal trainer designed to help users (initially Shay, 45 yo) lower body fat while preserving back health and supporting activities like climbing and swimming. The goal is to provide adaptive weekly plans, habit nudges, progress dashboards, and seamless integration with daily routines and equipment.
 
-This project aims to follow the specifications outlined in [`Technical-Specification-and-Implementation-Guide.md`](./Technical-Specification-and-Implementation-Guide.md).
+This project will follow the specifications outlined in [`Technical-Specification-and-Implementation-Guide.md`](./Technical-Specification-and-Implementation-Guide.md), incorporating learnings from previous development attempts.
 
-## 2. Tech Stack (Current)
+## 2. Target Tech Stack
 
-*   **Framework:** Next.js 14 (React 18) + TypeScript _(As specified, using **App Router**)_
-*   **Authentication:** **NextAuth.js v5 (Auth.js)** with Google, GitHub, and Credentials providers _(Added; Spec implicitly needed auth)_
-*   **Styling:** Tailwind CSS + **shadcn/ui** _(Spec mentioned Tailwind; `shadcn/ui` added)_
-*   **State Management:** Zustand (with IndexedDB persistence via `idb-keyval`) _(As specified)_
-*   **Forms:** React Hook Form + **Zod** _(Spec mentioned RHF; `Zod` added)_
-*   **Charts:** Recharts _(As specified)_
-*   **Date Handling:** Day.js _(As specified)_
-*   **Data Persistence:** IndexedDB via `idb-keyval` library; **Vercel KV** for Auth sessions (via `@auth/upstash-redis-adapter`) and **Push Notification Subscriptions**. _(KV added)_
-*   **Notifications:** **Web Push API** + Service Worker (`public/sw.js`) + **`web-push` library** (backend) _(As specified/Implementation choices)_
-*   **Markdown:** `gray-matter`, `react-markdown` + `remark-gfm` _(Implementation choices)_
-*   **Integrations:** Fitbit Web API (OAuth 2.0) _(Implemented)_, Google Health Connect / Apple HealthKit _(Pending)_, Web NFC API _(Pending)_ _(As specified)_
-*   **Testing:** Jest + React Testing Library _(As specified; **Cypress E2E pending**, Component tests currently blocked)_
-*   **PWA:** `@serwist/next` _(Implementation choice)_
-*   **Other Libraries:** `uuid`, `lucide-react` (icons), `sonner` (toasts), `core-js` (polyfills) _(Implementation choices)_
+*   **Framework:** **Next.js 15+ (React 19)** + TypeScript _(Using **App Router**)_
+*   **Authentication:** **NextAuth.js v5 (Auth.js)** with Google, GitHub, and Credentials providers
+*   **Styling:** Tailwind CSS + **shadcn/ui**
+*   **State Management:** **Zustand** (with **IndexedDB persistence** via `idb`)
+*   **Forms:** React Hook Form + **Zod** (for validation)
+*   **Charts:** Recharts
+*   **Date Handling:** Day.js
+*   **Data Persistence (Server-Side):** **Vercel KV** (via `@auth/upstash-redis-adapter` for Auth sessions and custom logic for Push Notification Subscriptions)
+*   **Notifications:** **Web Push API** + Service Worker (`src/worker/index.ts` or similar) + **`web-push` library** (backend)
+*   **Markdown:** `gray-matter`, `react-markdown` + `remark-gfm` (for Knowledge Base)
+*   **Integrations:** Fitbit Web API (OAuth 2.0)
+*   **Testing:** Jest + React Testing Library (Unit/Component); Cypress (E2E)
+*   **Other Key Libraries:** `uuid`, `lucide-react` (icons), `sonner` (toasts), `cross-env`, `start-server-and-test` (for E2E test setup)
 
-## 3. Current Status (as of latest update)
+## 3. Core Features & Implementation Plan (Based on Spec v1.0/v1.1)
 
-### Implemented Features (Highlights)
+This outlines the primary features to build in the initial phases.
 
-*   **Project Setup:** Next.js **App Router**, TypeScript, Tailwind, ESLint.
-*   **Authentication (NextAuth.js v5):** Core setup, Google/GitHub/Credentials providers, **Vercel KV** session storage, API route (`/api/auth/[...nextauth]/route.ts`), `getCurrentUserId` util (untested), Credentials provider `authorize` function tested.
-    *   **Authentication UI:** `SignInButton`, `SignOutButton`, `AuthButtons` implemented and integrated into `Header`.
-    *   **Route Protection:** Core application routes (`/`, `/planner`, `/nutrition`, `/knowledge`, `/settings`) protected via NextAuth.js middleware (`middleware.ts`).
-*   **Data Types:** Core interfaces defined (`src/types/index.ts`).
-*   **State Management (Zustand + IndexedDB):** Core stores implemented with `idbStorage` middleware (`userProfileStore`, `metricsStore`, `activityStore`, `offlineQueueStore`, `plannerStore`, `nutritionStore`). Tested.
-*   **Offline Queue & Sync Manager:** Basic store (`offlineQueueStore`) and processing logic (`src/lib/offlineSyncManager.ts`) implemented with retry logic. Tested using **placeholder server actions**.
-*   **Routing & Layout:** Basic App Router layout (`src/app/layout.tsx`) and core pages (`/`, `/onboard`, `/planner`, `/nutrition`, `/knowledge`, `/settings`).
-*   **UI Components (shadcn/ui):** Core components added.
-*   **Onboarding Flow (`/onboard`):** Multi-step form implemented. (Spec Feature 4.1)
-*   **Dashboard (`/`):** Implemented with `MetricCards`, `ProgressChart`, `TodayWorkout`. (Spec Feature 4.6 & Section 10).
-    *   `MetricCards` displays synced Fitbit data (Steps, Sleep, **Synced Calories Out**).
-*   **Nutrition (`/nutrition`):** Meal logging implemented. (Spec Feature 4.5)
-*   **Planner (`/planner`):** Weekly view implemented.
-    *   **Adaptive Logic:** Implemented in `generateWeeklyPlan` based on previous week's completion rate (adjusts templates and durations) and placeholder availability logic (simple swap for busy days). `plannerStore` updated to store multiple plans and pass previous week's data. Tested and verified.
-*   **Workout Logging:** `WorkoutDetailsModal` implemented for marking workouts complete/incomplete.
-*   **Goal Engine:** TDEE/Calorie/Macro calculations (`src/lib/calculationUtils.ts`) implemented and tested. UI in Settings (`/settings/goals/page.tsx`). (Spec Feature 4.2 & Algorithm 8.1-8.3).
-    *   **Fitbit Auto-Adjust Target:** `userProfileStore` automatically recalculates and stores `calorieTarget` and `proteinTarget` when fitness data (like Fitbit `lastSyncedCaloriesOut`) is updated. Tested.
-*   **Knowledge Base (`/knowledge`):** Implemented using markdown rendering. (Spec Feature 4.7)
-*   **Settings (`/settings`):** Profile, Goals, Data Export, Integrations, Notifications sections implemented.
-*   **Fitbit Integration:** (Spec Feature 4.12, Section 8A)
-    *   OAuth UI flow, callback handler, secure token storage (KV), refresh mechanism, server actions (`src/lib/fitbitActions.ts` - tested) including sync and revoke.
-    *   **Sync Trigger:** Automatic sync on connect and manual sync button in Settings.
-    *   **Data Usage:** Synced data stored in `activityStore` and `userProfileStore`. Used for Dashboard display and auto-adjusting calorie/protein targets.
-*   **Notifications (Backend & Manual Trigger):** (Spec Feature 4.8, Section 11)
-    *   Frontend subscription UI/logic in Settings.
-    *   Backend API routes (`/subscribe`, `/unsubscribe`) implemented using Vercel KV. Tested.
-    *   Server action (`src/lib/notificationActions.ts`) for *sending* notifications implemented using `web-push` and Vercel KV. Tested (with **mock workout data**).
-    *   Service worker (`public/sw.js`) setup for receiving push messages.
-    *   Manual trigger button in Settings (Dev) to test `triggerWorkoutReminders` action.
-*   **Testing:** Jest + RTL setup. Unit tests cover core utils, stores, offline sync manager (with mock server actions), Fitbit actions, Notification API routes, Notification actions (sending part with mock data), adaptive planner logic, goal auto-adjustment, and Fitbit callback API. (See `tests.md`).
-*   **Toast Notifications:** Implemented using `sonner`.
-*   **Data Export:** CSV export implemented in Settings. (Spec Feature 4.9)
+1.  **Project Setup:** Initialize Next.js App Router project with TypeScript, Tailwind, ESLint.
+2.  **UI Foundation:** Integrate `shadcn/ui`, set up basic layout (`layout.tsx`, `Header`, potentially `Sidebar`).
+3.  **Authentication:**
+    *   Implement NextAuth.js v5 config (`auth.config.ts`, `auth.ts`).
+    *   Set up providers (Google, GitHub, Credentials).
+    *   Configure Vercel KV adapter for session storage.
+    *   Implement API route (`/api/auth/[...nextauth]/route.ts`).
+    *   Create UI components (`AuthButtons`, `SignInButton`, `SignOutButton`).
+    *   Implement route protection using `middleware.ts`.
+4.  **Data Types:** Define core interfaces in `src/types/index.ts` (referencing Spec Section 7, adjusting as needed).
+5.  **State Management (Zustand):**
+    *   Create core stores (`userProfileStore`, `metricsStore`, `activityStore`, `plannerStore`, `nutritionStore`, `offlineQueueStore`).
+    *   Implement IndexedDB persistence using a helper (`src/lib/idbStorage.ts`) and Zustand's `persist` middleware.
+    *   **Crucially:** Implement hydration tracking (`_hasHydrated` flag set via `onRehydrateStorage`) for all persisted stores to prevent hydration errors.
+6.  **Onboarding Flow (`/onboard`):** Create multi-step form using RHF/Zod, saving data to `userProfileStore`. (Spec 4.1)
+7.  **Goal Engine & Settings:**
+    *   Implement calculation utils (`src/lib/calculationUtils.ts`). (Spec 8.1-8.3)
+    *   Create Goal Settings form (`GoalSettingsForm`) in `/settings`. (Spec 4.2)
+    *   Implement Profile Settings form (`UserProfileForm`) in `/settings`.
+8.  **Planner (`/planner`):**
+    *   Implement weekly calendar view.
+    *   Implement adaptive plan generation logic (`generateWeeklyPlan`). (Spec 8.4)
+    *   Implement workout logging (`WorkoutDetailsModal`).
+9.  **Nutrition (`/nutrition`):** Implement meal logging form/display. (Spec 4.5)
+10. **Dashboard (`/`):** Implement basic dashboard components (`MetricCards`, `ProgressChart`, `TodayWorkout`). (Spec 4.6, 10)
+11. **Fitbit Integration:** (Spec 4.12, 8A)
+    *   Implement OAuth flow components/buttons.
+    *   Create callback API route (`/api/fitbit/callback`) using server actions/direct fetch.
+    *   Implement server actions (`src/lib/fitbitActions.ts`) for sync, refresh, revoke, storing tokens in Vercel KV.
+    *   Integrate Fitbit data into stores (`activityStore`, `userProfileStore`) and dashboard.
+    *   Implement auto-adjustment of calorie/protein targets based on synced data.
+12. **Notifications:** (Spec 4.8, 11)
+    *   Implement frontend subscription logic (`NotificationSettings` component in `/settings`).
+    *   Implement Service Worker (`src/worker/index.ts`) for push events.
+    *   Implement backend API routes (`/subscribe`, `/unsubscribe`) storing subscriptions in Vercel KV.
+    *   Implement server action (`src/lib/notificationActions.ts`) for sending pushes (**initially with mock data**).
+13. **Knowledge Base (`/knowledge`):** Implement markdown rendering page. (Spec 4.7)
+14. **Data Export:** Implement JSON export button/logic in Settings. (Spec 4.9)
+15. **Offline Queue:** Implement basic `offlineQueueStore` and manager (`src/lib/offlineSyncManager.ts`) using **placeholder server actions** initially. (Spec 15)
+16. **Testing Setup:** Configure Jest/RTL and Cypress.
 
-### Discrepancies Between Implementation and Technical Specification
+## 4. Key Implementation Notes & Learnings (From Previous Attempt)
 
-*   **Architecture:** Implemented using **App Router**; Spec (Section 6) proposed Pages Router.
-*   **UI:** Uses **`shadcn/ui`** component library; Spec (Section 5) only mentioned Tailwind CSS.
-*   **Authentication:** Implemented using **NextAuth.js v5**; Spec didn't detail auth, but it's required.
-*   **Data Persistence:** Uses **Vercel KV** for Auth sessions and Push subscriptions; Spec (Section 5) focused on IndexedDB for persistence. IndexedDB (`idb-keyval`) *is* used for client-side store persistence as specified.
-*   **Forms:** Uses **`Zod`** for validation alongside React Hook Form; Spec (Section 5) only mentioned RHF.
-*   **Fitbit OAuth:** Implementation uses NextAuth.js adapter logic/direct fetch; Spec (Section 8A) suggested `simple-oauth2` library. Tokens stored server-side (KV).
-*   **Data Models:** Implemented types (`src/types/index.ts`) may differ slightly from Spec (Section 7) based on practical API usage and store needs (e.g., Fitbit structures, calculated fields like `calorieTarget`).
-*   **Planner Adaptation:** Availability logic is a simple placeholder swap; Spec (Algorithm 8.4) implied more complex user busy block integration. Back pain adjustment currently reduces duration; Spec suggested reducing intensity and adding mobility (template is switched, duration reduction is implemented).
-*   **Offline Sync:** Spec (Section 15) mentioned IndexedDB sync queue; implementation uses Zustand store (`offlineQueueStore`) with IndexedDB persistence and placeholder server actions.
+*   **App Router:** Use Next.js App Router conventions.
+*   **Zustand Hydration:** Persisted Zustand stores *must* implement hydration tracking (`_hasHydrated` flag set via `onRehydrateStorage`) and components consuming this state should ideally wait for hydration to complete (e.g., using conditional rendering `hasHydrated ? <Component /> : <Loading />`) to avoid React hydration errors, especially when combined with client-side hooks like `useSearchParams`.
+*   **`useSearchParams`:** Any component using `useSearchParams` (or other hooks triggering client-side rendering bailout) *must* be wrapped in a `<Suspense>` boundary in its parent.
+*   **NextAuth v5:** Follow Auth.js v5 patterns. Use Vercel KV adapter for session persistence.
+*   **Environment Variables:** Ensure *all* required environment variables (Auth secrets, KV tokens, Provider IDs/Secrets, Fitbit IDs/Secrets, VAPID keys) are correctly set up in `.env.local` for local development and provided to the testing/deployment environments.
+*   **E2E Testing (`test:e2e` script):**
+    *   Use `start-server-and-test` to build and serve the production version before running Cypress tests (`pnpm build && pnpm serve`).
+    *   Use `cross-env` to pass necessary environment variables (`AUTH_SECRET`, `AUTH_TRUST_HOST`, VAPID keys, etc.) to the test execution context.
+    *   Be aware of potential complex interactions between the production build, Cypress, and specific pages (like `/settings` previously) that might cause rendering/hydration issues requiring deeper investigation (e.g., using `cypress open` with DevTools).
 
-### Current Issues / Known Limitations
+## 5. Getting Started (New Project Setup)
 
-*   **Jest Configuration Blocker:** **Component Tests (RTL)** cannot currently be run due to a persistent `SyntaxError: Cannot use import statement outside a module` related to `next-auth/react`, despite `transformIgnorePatterns` adjustments. Linter errors also exist in `AuthButtons.test.tsx` related to `@testing-library/jest-dom` matchers.
-*   **Notifications:**
-    *   Workout reminder triggering (`triggerWorkoutReminders` action) uses **mocked workout data** via a placeholder (`getUpcomingWorkoutsForUser`).
-    *   Actual **reminder trigger logic is missing** (e.g., no cron job or scheduler is set up).
-*   **Offline Sync Manager:**
-    *   Relies entirely on **placeholder server actions** (`plannerActions.ts`, `nutritionActions.ts`, `metricsActions.ts`) which simulate success/failure. **No actual backend database/API calls are made.**
-*   **Testing Coverage:**
-    *   **Component tests** are blocked (see above).
-    *   **E2E tests (Cypress)** are missing.
-    *   Tests for **NextAuth API route handler** (`/api/auth/[...nextauth]/route.ts`) are missing.
-    *   Tests for **`getCurrentUserId` utility** are missing.
-    *   Tests for **middleware** are missing.
-*   **Fitbit Integration:** Robustness against rare API errors or edge cases could be improved.
-*   **Planner:** Adaptive logic needs refinement (e.g., incorporating real user availability, specific back pain intensity levels). No UI for viewing/managing past plans.
-
-### Missing Features / Next Steps (Prioritized)
-
-**Highest Priority (Unblocking & Core Functionality):**
-
-1.  **Fix Jest Configuration:** Resolve the ESM/transform issue preventing **Component Tests (RTL)** from running. Address linter errors in existing component tests. (Spec 13)
-2.  **Implement Component Tests:** Start adding RTL tests for critical UI components (`UserProfileForm`, `GoalSettingsForm`, `AuthButtons`, `MetricCards`, etc.) once unblocked. (Spec 13)
-3.  **Implement E2E Tests (Cypress):** Set up Cypress and begin testing critical user flows (Onboarding, Login, Plan Generation, Workout Completion, Fitbit Sync). (Spec 13)
-4.  **Notifications (Real Trigger & Data):**
-    *   Implement a **real data source** for `getUpcomingWorkoutsForUser` in `notificationActions.ts` (needs access to planner state, potentially via API route or client-driven trigger). (Spec 4.8, 11)
-    *   Implement **reminder trigger logic** (e.g., Vercel Cron Job calling `triggerWorkoutReminders`). (Spec 4.8, 11)
-    *   **Verify end-to-end push delivery** with real data.
-5.  **Offline Sync Manager (Real Backend):**
-    *   Replace **placeholder server actions** with actual database/API calls (e.g., to Vercel KV or a database) for saving workout completion, nutrition logs, metrics. (Spec 15)
-    *   Implement robust error handling for real API failures within the manager/server actions.
-    *   _Test Coverage:_ Update `offlineSyncManager.test.ts` to mock actual API calls.
-
-**Medium Priority (Completing Spec Features v1.1):**
-
-6.  **Wyze Scale Integration (Spec 4.13, 8F):** Implement reading from Google Health Connect / Apple HealthKit (likely requires native wrapper or alternative cloud API if available) or refine CSV import.
-7.  **NFC Triggers (Spec 4.14, 8B, 8E):** Implement Web NFC for Android, QR code fallback for iOS, and connect to workout logging/auto-start.
-8.  **Media Library Integration (Spec 4.10, 4.11, 6):** Connect `ExerciseVideo` and `MealGallery` components to a real data source (e.g., markdown frontmatter, database). Add tests.
-9.  **Planner Enhancements:** Refine availability integration (beyond placeholder). Implement back pain intensity adjustments.
-10. **Knowledge Cards Enhancements (Spec 4.7):** Add filtering/search.
-11. **Testing (Remaining Gaps):** Add tests for NextAuth API route, `getCurrentUserId`, middleware.
-
-**Low Priority (Spec v2.0 / Polish):**
-
-12. **Equipment Cues (Spec 4.4):** Implement standing desk/balance board prompts.
-13. **Data Export Enhancements (Spec 4.9):** Add JSON format.
-14. **AI Plan Re-generation (Spec 17.v2.0):** Integrate with OpenAI API.
-15. **CI/CD Finalization (Spec 14):** Set up full GitHub Actions workflow.
-16. **Accessibility & UX Polish (Spec 12):** Conduct review and refinement.
-17. **Guided Tutorials (Spec 4.14, 8D):** Implement modal and content for NFC setup.
-18. **Native Wrappers (Optional - Spec 8E):** Consider Capacitor/React Native if iOS NFC/full push is critical.
-
-## 4. Getting Started
-
-1.  **Clone the repository:**
+1.  **Create Next.js App:**
     ```bash
-    git clone <repository-url>
+    # Make sure you are OUTSIDE the old project directory
+    npx create-next-app@latest plank-you-very-much --typescript --tailwind --eslint --app --src-dir --import-alias "@/*"
     cd plank-you-very-much
     ```
-2.  **Install dependencies:**
+2.  **Install Core Dependencies:**
     ```bash
-    pnpm install
+    pnpm add zustand idb react-hook-form @hookform/resolvers zod recharts dayjs @auth/upstash-redis-adapter @vercel/kv next-auth@beta sonner lucide-react uuid gray-matter react-markdown remark-gfm web-push
     ```
-3.  **Environment Variables:**
-    Manually create a `.env.local` file in the root directory. **Do not commit this file.** Populate it with your secrets:
+    ```bash
+    pnpm add -D jest @types/jest @testing-library/react @testing-library/jest-dom jest-environment-jsdom ts-jest cypress cross-env start-server-and-test
+    ```
+3.  **Initialize Shadcn/UI:**
+    ```bash
+    pnpm dlx shadcn-ui@latest init
+    ```
+    (Follow prompts, choose desired style/colors, use `src/` directory, `components/ui` alias).
+4.  **Add Shadcn/UI Components (Example):**
+    ```bash
+    pnpm dlx shadcn-ui@latest add button input label card toast dialog select checkbox radio-group progress avatar switch
+    ```
+    (Add others as needed)
+5.  **Configure Jest:**
+    *   Create `jest.config.mjs` (referencing Next.js docs for App Router setup).
+    *   Create `jest.setup.js` (e.g., to import `@testing-library/jest-dom`).
+    *   Update `tsconfig.json` `types` array to include `jest` and `node`.
+    *   Update `package.json` `scripts` to include `"test": "jest --watch"` or similar.
+6.  **Configure Cypress:**
+    *   (Cypress might prompt setup on first run or use `npx cypress open`)
+    *   Configure `cypress.config.ts` (e.g., set `baseUrl`).
+7.  **Environment Variables:**
+    Manually create a `.env.local` file in the root directory. **Do not commit this file.** Populate it with *all* necessary secrets (referencing list below and potentially the Spec):
     ```dotenv
     # Auth Core (Required)
-    # Generate with: openssl rand -base64 32
-    AUTH_SECRET="YOUR_AUTH_SECRET_HERE"
-    AUTH_TRUST_HOST="true" # Recommended for Vercel/proxy deployments
-    # AUTH_URL="http://localhost:3000" # Usually auto-detected, set if needed
+    AUTH_SECRET="GENERATE_A_NEW_SECRET"
+    AUTH_TRUST_HOST="true"
 
-    # Vercel KV (Required for Auth Session Storage & Notification Subscriptions)
+    # Vercel KV (Required for Auth & Notifications)
     KV_URL="YOUR_KV_URL_HERE"
     KV_REST_API_URL="YOUR_KV_REST_API_URL_HERE"
     KV_REST_API_TOKEN="YOUR_KV_REST_API_TOKEN_HERE"
     KV_REST_API_READ_ONLY_TOKEN="YOUR_KV_REST_API_READ_ONLY_TOKEN_HERE"
 
-    # Auth Providers (Add secrets for providers you enable)
+    # Auth Providers (Required for chosen providers)
     AUTH_GOOGLE_ID="YOUR_GOOGLE_CLIENT_ID_HERE"
     AUTH_GOOGLE_SECRET="YOUR_GOOGLE_CLIENT_SECRET_HERE"
     AUTH_GITHUB_ID="YOUR_GITHUB_CLIENT_ID_HERE"
     AUTH_GITHUB_SECRET="YOUR_GITHUB_CLIENT_SECRET_HERE"
 
-    # Client-side Variables (Can also be in .env.local)
-    NEXT_PUBLIC_APP_NAME="Plank You Very Much"
-
-    # Fitbit Integration
+    # Fitbit Integration (Required for Fitbit features)
     NEXT_PUBLIC_FITBIT_CLIENT_ID="YOUR_FITBIT_CLIENT_ID_HERE"
     FITBIT_CLIENT_SECRET="YOUR_FITBIT_CLIENT_SECRET_HERE"
-    # Ensure this matches the registered callback URL in Fitbit Dev settings AND your callback API route
-    NEXT_PUBLIC_FITBIT_REDIRECT_URI="http://localhost:3000/api/fitbit/callback"
+    NEXT_PUBLIC_FITBIT_REDIRECT_URI="http://localhost:3000/api/fitbit/callback" # Adjust if needed
 
     # VAPID keys for Push Notifications (Required for Notifications)
-    # Generate with: npx web-push generate-vapid-keys
     NEXT_PUBLIC_VAPID_PUBLIC_KEY="YOUR_VAPID_PUBLIC_KEY_HERE"
     VAPID_PRIVATE_KEY="YOUR_VAPID_PRIVATE_KEY_HERE"
-    ```
-    **Important:** Configure callback/redirect URLs correctly in Google Cloud Console, GitHub Developer Settings, and Fitbit Developer Settings for your development (`localhost`) and production environments.
 
-4.  **Run the development server:**
+    # --- Client-side only ---
+    NEXT_PUBLIC_APP_NAME="Plank You Very Much"
+    ```
+8.  **Update `package.json` Scripts:** Add scripts for testing (Jest, Cypress E2E), potentially linting/formatting.
+    ```json
+    "scripts": {
+      "dev": "next dev",
+      "build": "next build",
+      "start": "next start",
+      "lint": "next lint",
+      "test": "jest",
+      "test:watch": "jest --watch",
+      "cy:open": "cypress open",
+      "cy:run": "cypress run",
+      "test:e2e": "cross-env NEXT_PUBLIC_VAPID_PUBLIC_KEY=dummy_public_key VAPID_PRIVATE_KEY=dummy_private_key AUTH_TRUST_HOST=true AUTH_SECRET=YOUR_TEST_AUTH_SECRET start-server-and-test start http://localhost:3000 cy:run"
+    },
+    ```
+    *(Note: Replace `YOUR_TEST_AUTH_SECRET` in `test:e2e`, potentially use different dummy keys/secrets for testing vs. dev)*.
+
+9.  **Run the development server:**
     ```bash
     pnpm dev
     ```
-    The application should be available at `http://localhost:3000`.
 
-5.  **Run Tests:** (See `tests.md` for details)
-    ```bash
-    # Run all tests
-    pnpm test
-    # Run specific test file
-    # pnpm exec jest src/store/metricsStore.test.ts
-    ```
-    ```bash
-    # Run E2E tests (requires Cypress setup)
-    # pnpm exec cypress open
-    ```
+## 6. Testing Strategy (Target)
 
-## 5. Contribution
+*   **Unit Tests (Jest/RTL):** Focus on utility functions, Zustand store logic (actions, selectors, persistence/hydration), server actions, API route handlers (with mocks), and complex hook logic.
+*   **Component Tests (Jest/RTL):** Test individual UI components in isolation, covering different states (loading, error, empty, populated), props variations, and basic user interactions (button clicks, form inputs) using mocks for external dependencies (stores, APIs).
+*   **End-to-End Tests (Cypress):** Test critical user flows simulating real interactions in a browser environment (Login, Onboarding, Planner Interaction, Settings Changes, Fitbit Connect/Sync). Use `start-server-and-test` with a production build (`test:e2e` script) for realistic testing.
+
+## 7. Contribution
 
 Please refer to Section 19 of the [`Technical-Specification-and-Implementation-Guide.md`](./Technical-Specification-and-Implementation-Guide.md) for contribution guidelines. 

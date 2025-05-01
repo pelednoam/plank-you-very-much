@@ -8,6 +8,7 @@ import dayjs from 'dayjs';
 interface ActivityState {
   // Key: YYYY-MM-DD date string
   dailyActivities: Record<string, FitbitDaily>; 
+  _hasHydrated: boolean; // <-- Add hydration status flag
   // Action to add or update a day's activity summary
   addOrUpdateActivity: (activityData: FitbitDaily) => void;
   getActivityForDate: (date: string) => FitbitDaily | undefined; // Date as YYYY-MM-DD
@@ -17,6 +18,7 @@ export const useActivityStore = create<ActivityState>()(
   persist(
     (set, get) => ({
       dailyActivities: {},
+      _hasHydrated: false, // <-- Initialize hydration flag
 
       addOrUpdateActivity: (activityData) => {
         if (!activityData || !activityData.date) {
@@ -43,9 +45,18 @@ export const useActivityStore = create<ActivityState>()(
       name: 'daily-activity-storage', // Unique name
       storage: createIdbStorage<Pick<ActivityState, 'dailyActivities'>>(), // Persist only the data
       partialize: (state) => ({ dailyActivities: state.dailyActivities }),
+      // Add onRehydrateStorage to set the flag
+      onRehydrateStorage: () => {
+        useActivityStore.setState({ _hasHydrated: true });
+        console.log("ActivityStore: Rehydration process finished.");
+      },
+      skipHydration: typeof window === 'undefined', // Skip hydration on server
     }
   )
 );
+
+// Selector for hydration status
+export const selectActivityHasHydrated = (state: ActivityState) => state._hasHydrated;
 
 // Optional: Selectors can be added here if needed
 export const selectActivityForDate = (date: string) => (state: ActivityState) => state.getActivityForDate(date); 

@@ -2,6 +2,8 @@ import { usePlannerStore } from '@/store/plannerStore';
 import { useNutritionStore } from '@/store/nutritionStore';
 import { useMetricsStore } from '@/store/metricsStore';
 import dayjs from 'dayjs';
+import { useUserProfileStore } from '@/store/userProfileStore';
+import type { Workout, BodyMetrics, UserProfile } from '@/types';
 
 /**
  * Triggers a browser download for the given data as a JSON file.
@@ -30,9 +32,11 @@ function downloadJson(data: unknown, filename: string): void {
  * Fetches all workout data and initiates a download.
  */
 export function exportWorkoutData(): void {
-    const workouts = usePlannerStore.getState().workouts;
+    const plans = usePlannerStore.getState().plans;
+    const allWorkouts: Workout[] = Object.values(plans).flatMap(plan => plan.workouts);
+
     const filename = `plankyou_workouts_${dayjs().format('YYYYMMDD')}.json`;
-    downloadJson(workouts, filename);
+    downloadJson(allWorkouts, filename);
 }
 
 /**

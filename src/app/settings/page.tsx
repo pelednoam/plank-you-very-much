@@ -7,7 +7,7 @@ import UserProfileForm from '@/features/settings/components/UserProfileForm';
 import FitbitConnectButton from '@/features/settings/components/FitbitConnectButton';
 import { Button } from '@/components/ui/button'; // Corrected casing
 import { exportWorkoutData, exportNutritionData, exportMetricsData } from '@/lib/exportUtils'; // Import export functions
-import { useUserProfileStore, selectNotificationPreferences, defaultProfile, selectFitbitConnection, type UserProfileState } from '@/store/userProfileStore'; // Import store, specific selector, AND defaultProfile
+import { useUserProfileStore, selectNotificationPreferences, defaultProfile, selectFitbitConnection, type UserProfileState, selectHasHydrated } from '@/store/userProfileStore'; // Import store, specific selector, AND defaultProfile
 import { useMetricsStore } from '@/store/metricsStore'; // Import metrics store
 import { useActivityStore } from '@/store/activityStore'; // Import the new activity store
 import { nfcToolsTutorial } from '@/features/tutorials/data/nfc-tools'; // Import tutorial data
@@ -22,278 +22,27 @@ import GoalSettingsForm from '@/features/settings/components/GoalSettingsForm'; 
 import dayjs from 'dayjs';
 import { Checkbox } from '@/components/ui/checkbox';
 import { triggerWorkoutReminders } from '@/lib/notificationActions'; // Import the trigger action
+import NotificationSettings from '@/features/settings/components/NotificationSettings'; // <-- Import the new component
+
+// Import the new hydration selectors
+import { selectHasHydrated as selectUserHydrated } from '@/store/userProfileStore';
+import { selectMetricsHasHydrated } from '@/store/metricsStore';
+import { selectActivityHasHydrated } from '@/store/activityStore';
+
+// Statically import TutorialModal instead of using dynamic
+// import { TutorialModal } from '@/features/tutorials/components/TutorialModal';
 
 // Dynamically import TutorialModal only on the client-side
 const TutorialModal = dynamic(() => 
     import('@/features/tutorials/components/TutorialModal').then(mod => mod.TutorialModal),
-    { 
+    {
         ssr: false, // Don't render on server
         loading: () => <p>Loading tutorial...</p> // Optional loading state
     }
 );
 
 // Placeholder components for other sections
-const NotificationSettings = () => {
-    const [permission, setPermission] = useState<NotificationPermission | null>(null);
-    const [isSubscribing, setIsSubscribing] = useState(false);
-    const [isSupported, setIsSupported] = useState(false);
-    const [subscription, setSubscription] = useState<PushSubscription | null>(null);
-    const appUserId = useUserProfileStore((state) => state.profile?.id ?? 'PLACEHOLDER_USER_ID_FOR_NOTIFICATIONS'); 
-    const rawPrefs = useUserProfileStore(selectNotificationPreferences);
-    const updateNotificationPref = useUserProfileStore((state) => state.updateNotificationPref);
-    
-    const notificationPrefs = rawPrefs || {}; 
-
-    useEffect(() => {
-        // Check support on mount
-        if ('Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window) {
-            setIsSupported(true);
-            setPermission(Notification.permission);
-            navigator.serviceWorker.ready.then(registration => {
-                registration.pushManager.getSubscription().then(sub => {
-                    if (sub) {
-                        setSubscription(sub);
-                        console.log("[Notifications] Existing push subscription found:", sub.endpoint);
-                        // Optional: Re-sync with backend if needed
-                        // sendSubscriptionToBackend(sub);
-                    }
-                });
-            });
-        } else {
-            console.warn("[Notifications] Push Notifications not supported by this browser.");
-            setIsSupported(false);
-            setPermission('denied');
-        }
-    }, []);
-
-    const requestPermission = async () => {
-        if (!isSupported) return toast.error("Notifications not supported");
-
-        const status = await Notification.requestPermission();
-        setPermission(status);
-
-        if (status === 'granted') {
-            toast.success("Notification permission granted.");
-            // Automatically try to subscribe after permission granted if not already subscribed
-            if (!subscription) {
-                 subscribeToPush(); 
-            }
-        } else {
-            toast.warning("Notification permission denied.");
-        }
-    };
-
-    // Function to send subscription to backend
-    const sendSubscriptionToBackend = async (sub: PushSubscription) => {
-        if (appUserId === 'PLACEHOLDER_USER_ID_FOR_NOTIFICATIONS') {
-            console.warn("[Notifications] Cannot send subscription to backend without a valid user ID.");
-            toast.error("Cannot save subscription: User identification missing.");
-            return false; // Indicate failure
-        }
-        console.log(`[Notifications] Sending subscription to backend for user ${appUserId}:`, sub.endpoint);
-        try {
-            const response = await fetch('/api/notifications/subscribe', { // Use specific action path
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ subscription: sub, userId: appUserId }), // Send subscription and valid user ID
-            });
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({})); // Try to get error details
-                throw new Error(`Backend subscription failed: ${response.statusText} ${JSON.stringify(errorData)}`);
-            }
-            console.log("[Notifications] Subscription sent to backend successfully.");
-            toast.success("Push notifications enabled.");
-            return true; // Indicate success
-        } catch (error) {
-            console.error("[Notifications] Failed to send subscription to backend:", error);
-            toast.error("Failed to save subscription to server.");
-            return false; // Indicate failure
-        }
-    };
-
-    const subscribeToPush = async () => {
-        if (!isSupported) return toast.error("Notifications not supported");
-        if (permission !== 'granted') {
-            toast.warning("Cannot subscribe, permission not granted. Please allow notifications.");
-            // Maybe trigger requestPermission again?
-            requestPermission();
-            return;
-        }
-        if (subscription) {
-            toast.info("Already subscribed.");
-            return;
-        }
-
-        setIsSubscribing(true);
-        toast.loading("Subscribing to push notifications..."); // Use loading toast
-        try {
-            const registration = await navigator.serviceWorker.ready;
-            const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-            
-            if (!vapidPublicKey) {
-                 console.error('[Notifications] VAPID public key is not configured.');
-                 toast.error('Notification Error', { description: 'Server configuration missing (VAPID key).', duration: 5000 });
-                 setIsSubscribing(false);
-                 toast.dismiss(); // Dismiss loading toast
-                 return;
-            }
-
-            const sub = await registration.pushManager.subscribe({
-                userVisibleOnly: true,
-                applicationServerKey: vapidPublicKey,
-            });
-            
-            console.log('[Notifications] Push subscription successful locally:', sub.endpoint);
-            
-            // Send the subscription object to backend
-            const backendSuccess = await sendSubscriptionToBackend(sub);
-
-            if(backendSuccess) {
-                setSubscription(sub); // Update local state only if backend sync is successful
-            } else {
-                // If backend fails, unsubscribe locally to keep state consistent
-                 await sub.unsubscribe();
-                 console.warn("[Notifications] Unsubscribed locally due to backend sync failure.");
-                 toast.error("Subscription failed", { description: "Could not save subscription to server. Please try again." });
-            }
-
-        } catch (error) {
-            console.error('[Notifications] Failed to subscribe to push notifications:', error);
-            toast.error('Subscription Failed', { description: `Could not subscribe. ${error instanceof Error ? error.message : 'Unknown error'}`, duration: 5000 });
-        } finally {
-            setIsSubscribing(false);
-            toast.dismiss(); // Dismiss loading toast
-        }
-    };
-
-     // Function to remove subscription from backend
-    const removeSubscriptionFromBackend = async (subEndpoint: string) => {
-        if (appUserId === 'PLACEHOLDER_USER_ID_FOR_NOTIFICATIONS') {
-            console.warn("[Notifications] Cannot remove subscription from backend without a valid user ID.");
-            toast.error("Cannot remove subscription: User identification missing.");
-            return false; // Indicate failure
-        }
-        console.log(`[Notifications] Removing subscription from backend for user ${appUserId}:`, subEndpoint);
-        try {
-            const response = await fetch('/api/notifications/unsubscribe', { // Use specific action path
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ endpoint: subEndpoint, userId: appUserId }), // Identify subscription by endpoint and valid user
-            });
-            if (!response.ok) {
-                 const errorData = await response.json().catch(() => ({}));
-                 throw new Error(`Backend unsubscription failed: ${response.statusText} ${JSON.stringify(errorData)}`);
-            }
-            console.log("[Notifications] Subscription removed from backend successfully.");
-            // Don't toast success here, let the calling function handle it
-             return true; // Indicate success
-        } catch (error) {
-            console.error("[Notifications] Failed to remove subscription from backend:", error);
-            toast.error("Failed to remove subscription from server.");
-            return false; // Indicate failure
-        }
-    };
-
-    const unsubscribeFromPush = async () => {
-        if (!subscription) return;
-        setIsSubscribing(true);
-        toast.loading("Unsubscribing...");
-        const subEndpoint = subscription.endpoint; // Store endpoint before unsubscribing
-        try {
-            const localUnsubscribed = await subscription.unsubscribe();
-            if (localUnsubscribed) {
-                console.log('[Notifications] Unsubscribed successfully locally.');
-                setSubscription(null);
-                // Send request to backend to remove the subscription
-                const backendSuccess = await removeSubscriptionFromBackend(subEndpoint);
-                if (backendSuccess) {
-                     toast.success("Push notifications disabled.");
-                } else {
-                    // If backend removal fails, the user state is locally unsubscribed but potentially still subscribed on the server.
-                    // This state is tricky. Maybe re-fetch subscription state?
-                    toast.warning("Unsubscribed locally, but failed to update server.");
-                }
-            } else {
-                 console.error('[Notifications] Local unsubscribe call returned false.');
-                 toast.error("Failed to unsubscribe locally.");
-            }
-        } catch (error) {
-             console.error('[Notifications] Failed to unsubscribe:', error);
-             toast.error("Unsubscribe failed", { description: `${error instanceof Error ? error.message : 'Unknown error'}` });
-        } finally {
-             setIsSubscribing(false);
-             toast.dismiss();
-        }
-    };
-
-    const handlePrefChange = (prefKey: keyof NotificationPreferences, checked: boolean) => {
-        console.log(`[Notifications] Preference changed: ${prefKey} = ${checked}`);
-        updateNotificationPref(prefKey, checked);
-        // TODO: Consider if backend needs to know about individual preferences
-        // (e.g., to avoid sending pushes the user has disabled client-side)
-        // If so, add an API call here.
-        toast.info("Preference updated."); // Simple feedback
-    };
-
-    // Determine button states
-    const showRequestButton = isSupported && permission === 'default';
-    const showSubscribeButton = isSupported && permission === 'granted' && !subscription;
-    const showUnsubscribeButton = isSupported && permission === 'granted' && subscription;
-    const isDisabled = !isSupported || isSubscribing || permission === 'denied';
-
-    return (
-        <div className="space-y-4">
-             <h3 className="text-lg font-medium mb-2">Push Notifications</h3>
-             {!isSupported && <p className="text-sm text-red-500">Push notifications are not supported by your browser.</p>}
-             {permission === 'denied' && <p className="text-sm text-orange-500">You have blocked notifications. Please enable them in your browser settings.</p>}
-
-            {/* Master Control Button */} 
-             <div className="flex items-center space-x-3 mb-4">
-                 {showRequestButton && (
-                     <Button onClick={requestPermission} disabled={isSubscribing}>
-                         Allow Notifications
-                     </Button>
-                 )}
-                 {showSubscribeButton && (
-                     <Button onClick={subscribeToPush} disabled={isSubscribing}>
-                         Enable Push Notifications
-                      </Button>
-                 )}
-                 {showUnsubscribeButton && (
-                     <Button variant="destructive" onClick={unsubscribeFromPush} disabled={isSubscribing}>
-                         Disable Push Notifications
-                      </Button>
-                 )}
-                 {isSubscribing && <span className="text-sm text-muted-foreground">Processing...</span>}
-            </div>
-
-            {/* Granular Preferences (Disabled if master is off/denied) */} 
-            {isSupported && permission === 'granted' && subscription && (
-                <div className="space-y-3 pl-4 border-l-2">
-                    <p className="text-sm text-muted-foreground">Manage specific notification types:</p>
-                     {(Object.keys(defaultProfile.notificationPrefs || {}) as Array<keyof NotificationPreferences>).map((key) => (
-                         <div key={key} className="flex items-center space-x-2">
-                             <Checkbox 
-                                 id={`pref-${key}`}
-                                 checked={notificationPrefs[key] ?? false} 
-                                 onCheckedChange={(checked) => handlePrefChange(key, !!checked)} // Pass boolean
-                                 disabled={isDisabled} // Disable if master is off
-                              />
-                             <Label htmlFor={`pref-${key}`} className="capitalize font-normal">
-                                 {/* Simple formatting */} 
-                                 {key.replace(/([A-Z])/g, ' $1').trim()}
-                             </Label>
-                         </div>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-};
+// const NotificationSettings = () => { ... }; // <-- REMOVE the inline definition
 
 const DataExportSettings = () => {
     const [isExporting, setIsExporting] = useState(false);
@@ -355,7 +104,6 @@ const selectFitbitConnectionData = (state: UserProfileState) => ({
 
 const IntegrationSettings = () => {
     const router = useRouter();
-    const searchParams = useSearchParams();
     // Use the refined selector
     const fitbitConnection = useUserProfileStore(selectFitbitConnectionData);
     const { setFitbitConnection, clearFitbitConnection, updateFitnessData } = useUserProfileStore(state => ({ 
@@ -379,43 +127,11 @@ const IntegrationSettings = () => {
 
     // Ref for preventing duplicate auto-sync calls
     const hasAutoSynced = useRef(false);
-    const initialLoadComplete = useRef(false); // Track initial load/callback handling
-
-    // --- Effect for Handling OAuth Callback --- //
-    useEffect(() => {
-        const code = searchParams?.get('code');
-        const error = searchParams?.get('error');
-        
-        // Only process callback if not yet connected AND initial load hasn't happened
-        if (!isConnected && !initialLoadComplete.current) {
-            if (error) {
-                toast.error('Fitbit Connection Error', { description: `Failed to connect: ${error}` });
-                router.replace('/settings', { scroll: false });
-                initialLoadComplete.current = true; // Mark initial load done even on error
-                return; 
-            }
-            if (code) {
-                handleFitbitCallback(code); // This will set initialLoadComplete.current = true on success/error
-                return; // Wait for callback handler to finish
-            }
-        }
-        // If no code/error and not connected, mark initial load complete
-        if (!code && !error && !isConnected) {
-             initialLoadComplete.current = true; 
-        }
-        // If already connected, mark initial load complete
-        if(isConnected) {
-             initialLoadComplete.current = true; 
-        }
-
-    // Only run when searchParams change initially. isConnected is handled inside.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [searchParams]);
 
     // --- Effect for Initial Profile Fetch & Auto-Sync (Post-Connect/Load) --- //
     useEffect(() => {
-        // Only run if connected AND initial load/callback processing is complete
-        if (isConnected && initialLoadComplete.current && !isProfileLoading && !isDisconnecting && !isSyncingToday && !isAutoSyncing) {
+        // Only run if connected 
+        if (isConnected && !isProfileLoading && !isDisconnecting && !isSyncingToday && !isAutoSyncing) {
             // Fetch profile if not already loaded
             if (!fitbitProfile) {
                 handleFetchFitbitProfile(); // This function will trigger auto-sync on success
@@ -425,8 +141,8 @@ const IntegrationSettings = () => {
                  handleAutoSync();
              }
         }
-    // Depends on connection status, profile state, initial load completion, and loading flags
-    }, [isConnected, fitbitProfile, isProfileLoading, isDisconnecting, isSyncingToday, isAutoSyncing, initialLoadComplete.current]); 
+    // Depends on connection status, profile state, and loading flags
+    }, [isConnected, fitbitProfile, isProfileLoading, isDisconnecting, isSyncingToday, isAutoSyncing]); 
 
     const handleTutorialComplete = (tutorialId: string) => {
         useUserProfileStore.getState().markTutorialComplete(tutorialId);
@@ -529,35 +245,6 @@ const IntegrationSettings = () => {
         }
     };
 
-    const handleFitbitCallback = async (code: string) => {
-        setIsProfileLoading(true); // Use profile loading state during callback
-        toast.loading("Connecting to Fitbit...");
-        try {
-            const response = await fetch('/api/fitbit/callback', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code }),
-            });
-            const data = await response.json();
-            toast.dismiss();
-            if (!response.ok || !data.success) throw new Error(data.error || 'Callback failed');
-
-            setFitbitConnection(data.fitbitUserId, data.accessToken, data.expiresAt);
-            toast.success("Fitbit connected successfully!");
-            // Fetch profile immediately after connect (this will also trigger auto-sync on success)
-            handleFetchFitbitProfile(); // Sets initialLoadComplete.current = true internally
-
-        } catch (error) {
-            toast.dismiss();
-            console.error("Fitbit callback error:", error);
-            toast.error("Fitbit Connection Failed", { description: error instanceof Error ? error.message : 'Unknown error' });
-            setIsProfileLoading(false); // Reset loading on error
-            initialLoadComplete.current = true; // Ensure initial load flag is set even on error
-        } finally {
-            router.replace('/settings', { scroll: false });
-        }
-    };
-
     const handleFetchFitbitProfile = async () => {
         const currentAccessToken = fitbitConnection.profile?.fitbitAccessToken;
         const currentExpiresAt = fitbitConnection.profile?.fitbitExpiresAt;
@@ -569,7 +256,6 @@ const IntegrationSettings = () => {
         setIsProfileLoading(true);
         toast.loading("Fetching Fitbit profile...");
         hasAutoSynced.current = false; // Reset auto-sync flag when fetching profile
-        initialLoadComplete.current = false; // Indicate profile fetch is part of initial load sequence
         try {
             const result = await fetchFitbitData({
                 endpoint: '/1/user/-/profile.json',
@@ -607,7 +293,6 @@ const IntegrationSettings = () => {
             // Don't clear connection on general errors, only auth errors above
         } finally {
             setIsProfileLoading(false);
-            initialLoadComplete.current = true; // Mark profile fetch sequence complete
         }
     };
 
@@ -757,8 +442,10 @@ const IntegrationSettings = () => {
             {/* NFC Section */}
             <div className="p-4 border rounded-md space-y-3">
                  <h4 className="font-semibold">NFC Activity Triggers</h4>
-                 <p className="text-sm text-gray-500">Tap NFC stickers near equipment to quickly log activities (Requires compatible Android device & Chrome).</p>
-                 <Button onClick={() => setIsTutorialOpen(true)} variant="outline" size="sm">Help Writing NFC Tags</Button>
+                 <p className="text-sm text-gray-600">
+                     Use NFC tags to quickly start specific workouts. 
+                     <Button variant="link" className="p-0 h-auto ml-1" onClick={() => setIsTutorialOpen(true)}>Learn how...</Button>
+                 </p>
             </div>
 
             {/* --- Manual Notification Trigger (for Dev/Testing) --- */}
@@ -781,14 +468,15 @@ const IntegrationSettings = () => {
                 </Button>
             </div>
 
-            {isTutorialOpen && (
-                <TutorialModal 
-                    tutorial={nfcToolsTutorial} 
-                    isOpen={isTutorialOpen} 
-                    onClose={() => setIsTutorialOpen(false)} 
-                    onComplete={handleTutorialComplete} 
-                />
-            )}
+            {/* Render the modal conditionally */}
+             {isTutorialOpen && nfcToolsTutorial && (
+                 <TutorialModal 
+                     tutorial={nfcToolsTutorial} 
+                     isOpen={isTutorialOpen} 
+                     onClose={() => setIsTutorialOpen(false)} 
+                     onComplete={handleTutorialComplete}
+                 />
+             )}
         </div>
     );
 };
@@ -803,8 +491,12 @@ function SettingsPageContent() {
         clearFitbitConnectionAction: state.clearFitbitConnection,
     }));
 
+    // Restore the useEffect hook
     useEffect(() => {
         console.log("[Settings Page Effect] Checking search params...");
+        // Add null check for searchParams
+        if (!searchParams) return;
+
         const connectStatus = searchParams.get('fitbit_connect');
         const error = searchParams.get('fitbit_error');
         const accessToken = searchParams.get('fitbit_access_token');
@@ -861,10 +553,10 @@ function SettingsPageContent() {
     return (
         <div className="container mx-auto p-4 space-y-8">
             <h1 className="text-2xl font-bold">Settings</h1>
-            <UserProfileForm />
-            <GoalSettingsForm />
-            <IntegrationSettings />
-            <NotificationSettings />
+            <UserProfileForm /> 
+            <GoalSettingsForm /> 
+            <IntegrationSettings /> 
+            <NotificationSettings /> 
             <DataExportSettings />
             {/* Add other settings sections here */}
         </div>
@@ -872,10 +564,17 @@ function SettingsPageContent() {
 }
 
 export default function SettingsPage() {
-  // Wrap content in Suspense because useSearchParams() needs it
+  // Get hydration status from all relevant stores
+  const userHydrated = useUserProfileStore(selectUserHydrated);
+  const metricsHydrated = useMetricsStore(selectMetricsHasHydrated);
+  const activityHydrated = useActivityStore(selectActivityHasHydrated);
+
+  const allStoresHydrated = userHydrated && metricsHydrated && activityHydrated;
+
   return (
-    <Suspense fallback={<div>Loading Settings...</div>}>
-        <SettingsPageContent />
+    <Suspense fallback={<div>Loading Settings...</div>}> 
+      {/* Only render content after ALL relevant Zustand stores have hydrated */}
+      {allStoresHydrated ? <SettingsPageContent /> : null} 
     </Suspense>
   );
 } 

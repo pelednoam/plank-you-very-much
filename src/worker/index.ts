@@ -67,8 +67,10 @@ if (self instanceof ServiceWorkerGlobalScope) {
        // ],
     };
 
+    console.log("[SW] Push received with data:", notificationData);
+
     // Cast self to access registration
-    const notificationPromise = (self as ServiceWorkerGlobalScope).registration.showNotification(notificationData.title, options);
+    const notificationPromise = (self as unknown as ServiceWorkerGlobalScope).registration.showNotification(notificationData.title, options);
     event.waitUntil(notificationPromise);
   });
 
@@ -82,7 +84,7 @@ if (self instanceof ServiceWorkerGlobalScope) {
     const urlToOpen = event.notification.data?.url || '/'; // Default to home page
 
     // Cast self to access clients
-    const swScope = self as ServiceWorkerGlobalScope;
+    const swScope = self as unknown as ServiceWorkerGlobalScope;
     event.waitUntil(
       swScope.clients.matchAll({
         type: 'window',
